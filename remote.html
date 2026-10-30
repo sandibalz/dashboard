@@ -43,6 +43,9 @@ body.hidebars #top,body.hidebars #tools,body.hidebars #keys,body.hidebars #setup
 <div id="setup">
   <input id="keyIn" type="password" placeholder="Shared key (typed once per device)" autocomplete="off">
   <button id="keySave">Save key</button>
+  <button id="keyMs" title="Reads the key from your OneDrive using the Microsoft sign-in you use on the Overview page. Nothing is saved on this device.">Get key from Microsoft sign-in</button>
+  <button id="keyForget" title="Remove the key typed on this device. The Microsoft sign-in can still fetch it.">Forget saved key</button>
+  <span id="keyNote" class="small" style="flex-basis:100%"></span>
   <input id="relayIn" placeholder="Relay URL" style="flex-basis:100%">
   <span class="small" style="flex-basis:100%">The key is stored only in this browser and never sent anywhere; it only signs the connection. Anyone with the key can control all the PCs.</span>
   <select id="kbps"><option value="2000">2 Mbps</option><option value="4000">4 Mbps</option><option value="8000" selected>8 Mbps</option><option value="15000">15 Mbps</option></select>
@@ -145,11 +148,41 @@ async function openSock(n, g) {
   };
   ws.onerror = () => {};
 }
-function startAll() {
+// ---- key from the Microsoft sign-in (same sign-in the Overview page uses; the key is read from OneDrive and kept in memory only) ----
+const MS_CFG = '/Documents/Remote-Chrome/extension/config.json';
+function loadScript(src) { return new Promise((res, rej) => { const el = document.createElement('script'); el.src = src; el.onload = res; el.onerror = () => rej(new Error('could not load the Microsoft sign-in library')); document.head.append(el); }); }
+async function msKey() {
+  if (!window.msal) await loadScript('https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js');
+  let cid = '1ee77fca-2582-4c3d-a13a-84f3ce009772'; try { const v = JSON.parse(localStorage.getItem('co.clientId')); if (v) cid = v; } catch {}
+  const pca = new msal.PublicClientApplication({ auth: { clientId: cid, authority: 'https://login.microsoftonline.com/consumers', redirectUri: location.origin + location.pathname }, cache: { cacheLocation: 'localStorage' } });
+  if (pca.initialize) await pca.initialize();
+  const acct = pca.getActiveAccount() || pca.getAllAccounts()[0];
+  if (!acct) throw new Error('Not signed in on this browser. Open the Overview page, sign in there once, then come back.');
+  let tok; try { tok = (await pca.acquireTokenSilent({ scopes: ['Files.ReadWrite'], account: acct })).accessToken; }
+  catch (e) { throw new Error('Microsoft needs you to sign in again. Open the Overview page and sign in, then come back.'); }
+  const h = { Authorization: 'Bearer ' + tok }, p = 'https://graph.microsoft.com/v1.0/me/drive/root:' + MS_CFG.split('/').map(encodeURIComponent).join('/');
+  const m = await fetch(p + '?select=id,@microsoft.graph.downloadUrl', { headers: h });
+  if (!m.ok) throw new Error('OneDrive said ' + m.status + ' for the Remote-Chrome config file');
+  const u = (await m.json())['@microsoft.graph.downloadUrl'];
+  const r = u ? await fetch(u) : await fetch(p + ':/content', { headers: h });
+  if (!r.ok) throw new Error('Could not download the config file (' + r.status + ')');
+  const j = JSON.parse((await r.text()).replace(/^\uFEFF/, ''));
+  if (!j.key) throw new Error('The config file has no key');
+  return j.key;
+}
+let msErr = '';
+async function autoKey() {
+  show('Getting the key from your Microsoft sign-in…');
+  try { cfg.key = await msKey(); cfg.fromMs = true; msErr = ''; dlog('key loaded via Microsoft sign-in'); show(''); return true; }
+  catch (e) { msErr = e.message; dlog('key via Microsoft failed: ' + e.message); show(''); return false; }
+}
+async function startAll() {
   gen++; disconnect(true);
   for (const n of Object.keys(socks)) { try { socks[n].ws.onclose = null; socks[n].ws.close(); } catch {} clearInterval(socks[n].hb); delete socks[n]; }
   buildHosts();
-  if (!cfg.key) { $('#setup').style.display = 'flex'; show('Open the gear, type the shared key once, Save.'); return; }
+  if (!cfg.key) await autoKey();
+  if (!cfg.key) { $('#setup').style.display = 'flex'; $('#keyNote').textContent = msErr; show('No key yet: tap Get key from Microsoft sign-in (gear), or type it once and Save.'); return; }
+  $('#keyNote').textContent = cfg.fromMs ? 'Key loaded from your Microsoft sign-in (kept in memory only).' : '';
   show('');
   HOSTS.forEach((n) => openSock(n, gen));
 }
@@ -369,6 +402,8 @@ $('#bSet').onclick = () => {
   const el = $('#setup'); const on = el.style.display === 'none' || !el.style.display;
   el.style.display = on ? 'flex' : 'none'; $('#relayIn').value = cfg.relay;
 };
+$('#keyMs').onclick = async () => { cfg.key = ''; cfg.fromMs = false; await startAll(); };
+$('#keyForget').onclick = () => { LS.set('rc.key', ''); cfg.key = ''; cfg.fromMs = false; $('#keyNote').textContent = 'Saved key removed from this device.'; startAll(); };
 $('#keySave').onclick = () => {
   const k = $('#keyIn').value.trim(), r = $('#relayIn').value.trim() || DEF_RELAY;
   if (k) { cfg.key = k; LS.set('rc.key', k); $('#keyIn').value = ''; }
