@@ -155,7 +155,7 @@ function loadScript(src) { return new Promise((res, rej) => { const el = documen
 async function msKey() {
   if (!window.msal) await loadScript('https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js');
   let cid = '1ee77fca-2582-4c3d-a13a-84f3ce009772'; try { const v = JSON.parse(localStorage.getItem('co.clientId')); if (v) cid = v; } catch {}
-  const pca = new msal.PublicClientApplication({ auth: { clientId: cid, authority: 'https://login.microsoftonline.com/consumers', redirectUri: location.origin + location.pathname }, cache: { cacheLocation: 'localStorage' } });
+  const pca = new msal.PublicClientApplication({ auth: { clientId: cid, authority: 'https://login.microsoftonline.com/consumers', redirectUri: location.origin + location.pathname.replace(/[^/]*$/, '') }, cache: { cacheLocation: 'localStorage' } });
   if (pca.initialize) await pca.initialize();
   const acct = pca.getActiveAccount() || pca.getAllAccounts()[0];
   if (!acct) throw new Error('Not signed in on this browser. Open the Overview page, sign in there once, then come back.');
@@ -403,7 +403,7 @@ $('#bSet').onclick = () => {
   const el = $('#setup'); const on = el.style.display === 'none' || !el.style.display;
   el.style.display = on ? 'flex' : 'none'; $('#relayIn').value = cfg.relay;
 };
-$('#keySignIn').onclick = () => { try { sessionStorage.setItem('co.next', location.pathname.replace(/[^/]*$/, '') + 'remote.html' + location.search); } catch {} location.href = location.pathname.replace(/[^/]*$/, '') + 'index.html'; };
+$('#keySignIn').onclick = () => { try { sessionStorage.setItem('co.next', location.pathname.replace(/[^/]*$/, '') + 'remote.html' + location.search); } catch {} location.href = location.pathname.replace(/[^/]*$/, ''); };   // the folder address is the one registered with Microsoft (index.html is not)
 $('#keyMs').onclick = async () => { cfg.key = ''; cfg.fromMs = false; await startAll(); };
 $('#keyForget').onclick = () => { LS.set('rc.key', ''); cfg.key = ''; cfg.fromMs = false; $('#keyNote').textContent = 'Saved key removed from this device.'; startAll(); };
 $('#keySave').onclick = () => {
