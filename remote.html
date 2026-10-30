@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Remote (test)</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#0f1218;color:#e6e9ef;font:14px system-ui,Segoe UI,sans-serif;overscroll-behavior:none}
+body{display:flex;flex-direction:column}
+.bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:6px 8px;background:#171b24;border-bottom:1px solid #262c38}
+button,select,input{font:inherit;color:inherit;background:#232a36;border:1px solid #333c4d;border-radius:8px;padding:7px 10px;min-height:36px}
+button:disabled,select:disabled,input:disabled{opacity:.4}
+button:active:not(:disabled){background:#2e394b}
+button.host .dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#666;margin-right:6px}
+button.host.on .dot{background:#3ddc84}
+button.host.cur{border-color:#6ea8ff;background:#26344d}
+button.tog.on{background:#26344d;border-color:#6ea8ff}
+#url{flex:1;min-width:140px}
+#stage{position:relative;flex:1;min-height:0;background:#000;outline:none;display:flex;align-items:center;justify-content:center;touch-action:none;user-select:none;-webkit-user-select:none}
+#v{max-width:100%;max-height:100%;width:100%;height:100%;object-fit:contain;touch-action:none;-webkit-touch-callout:none}
+#msg{position:absolute;inset:0;display:none;align-items:center;justify-content:center;text-align:center;padding:24px;background:#000a;font-size:16px;pointer-events:none}
+#msg.err{color:#ff9a9a}
+#setup{padding:12px;display:none;gap:8px;flex-wrap:wrap;align-items:center;background:#1b2130;border-bottom:1px solid #262c38}
+#setup input{flex:1;min-width:200px}
+#keys{display:none}
+#hid{position:fixed;left:-200px;top:0;width:10px;height:10px;opacity:0}
+#stats{color:#8a93a6;font-size:12px;margin-left:auto}
+#ripple{position:absolute;width:26px;height:26px;margin:-13px 0 0 -13px;border:2px solid #6ea8ff;border-radius:50%;pointer-events:none;display:none}
+.small{font-size:12px;color:#8a93a6}
+</style></head>
+<body>
+<div class="bar" id="top">
+  <span id="hosts" style="display:contents"></span>
+  <button id="btnDisc" disabled>Disconnect</button>
+  <button id="bSet" title="Key and relay">&#9881;</button>
+  <button id="bFs" title="Full screen">&#9974;</button>
+  <span id="stats"></span>
+</div>
+<div id="setup">
+  <input id="keyIn" type="password" placeholder="Shared key (typed once per device)" autocomplete="off">
+  <button id="keySave">Save key</button>
+  <input id="relayIn" placeholder="Relay URL" style="flex-basis:100%">
+  <span class="small" style="flex-basis:100%">The key is stored only in this browser and never sent anywhere; it only signs the connection. Anyone with the key can control all the PCs.</span>
+  <select id="kbps"><option value="2000">2 Mbps</option><option value="4000">4 Mbps</option><option value="8000" selected>8 Mbps</option><option value="15000">15 Mbps</option></select>
+  <select id="fps"><option value="10">10 fps</option><option value="15">15 fps</option><option value="30" selected>30 fps</option></select>
+  <select id="hint"><option value="detail">Sharp text</option><option value="motion" selected>Smooth motion</option></select>
+  <select id="codec"><option value="auto">Codec: auto</option><option value="H264">H264</option><option value="VP9">VP9</option><option value="VP8">VP8</option><option value="AV1">AV1</option></select>
+</div>
+<div class="bar" id="tools">
+  <button id="bBack" disabled>&#9664;</button><button id="bFwd" disabled>&#9654;</button><button id="bRel" disabled>&#8635;</button>
+  <input id="url" disabled placeholder="Address or search" autocapitalize="off" autocomplete="off" spellcheck="false">
+  <button id="bGo" disabled>Go</button>
+  <select id="tabsel" disabled style="max-width:150px"><option>Tabs</option></select>
+  <button id="bNew" disabled>+ Tab</button><button id="bClose" disabled>&#10005; Tab</button>
+  <button id="bPaste" disabled>Paste</button>
+  <button id="bMode" class="tog" disabled>Touch: Scroll</button>
+  <button id="bKb" disabled>&#9000; Keys</button>
+</div>
+<div class="bar" id="keys">
+  <button data-k="Escape">Esc</button><button data-k="Tab">Tab</button><button data-k="Backspace">&#9003;</button><button data-k="Enter">Enter</button>
+  <button data-k="ArrowLeft">&#8592;</button><button data-k="ArrowUp">&#8593;</button><button data-k="ArrowDown">&#8595;</button><button data-k="ArrowRight">&#8594;</button>
+  <button data-k="PageUp">PgUp</button><button data-k="PageDown">PgDn</button><button id="bCtl" class="tog">Ctrl</button>
+</div>
+<div id="stage" tabindex="0">
+  <video id="v" autoplay playsinline muted></video>
+  <div id="ripple"></div>
+  <div id="msg"></div>
+</div>
+<textarea id="hid" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
+<script>
+'use strict';
+const $ = (s) => document.querySelector(s);
+const DEF_RELAY = 'wss://remote-chrome-relay.ben5309.workers.dev';
+const HOSTS = ['Ben', 'Cindy', 'Tyler', 'Jessica'];
+const ICE = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' }];
+const LS = {
+  get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+};
+const cfg = { relay: LS.get('rc.relay', DEF_RELAY), key: LS.get('rc.key', ''), ice: ICE, hosts: HOSTS };
+
+// ---- crypto (same scheme as the extension's lib.js) ----
+const enc = new TextEncoder();
+const hex = (b) => [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, '0')).join('');
+const unhex = (s) => new Uint8Array((s.match(/../g) || []).map((h) => parseInt(h, 16)));
+const RC = {
+  room: async (name) => hex(await crypto.subtle.digest('SHA-256', enc.encode('room:' + cfg.key + ':' + name.toLowerCase()))),
+  hk: (u) => crypto.subtle.importKey('raw', enc.encode(cfg.key), { name: 'HMAC', hash: 'SHA-256' }, false, u),
+  sign: async (t) => hex(await crypto.subtle.sign('HMAC', await RC.hk(['sign']), enc.encode(t))),
+  verify: async (t, sig) => { try { return await crypto.subtle.verify('HMAC', await RC.hk(['verify']), unhex(String(sig)), enc.encode(t)); } catch { return false; } },
+  connect: (room) => new WebSocket(`${cfg.relay}/ws?room=${room}&role=viewer`),
+};
+
+let cur = null, tabsTimer = null, statsTimer = null, rpcId = 1, lastBytes = 0, lastT = 0, selTab = null, gen = 0;
+const socks = {}, rpcWait = new Map();
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const show = (t, err) => { const m = $('#msg'); m.textContent = t || ''; m.classList.toggle('err', !!err); m.style.display = t ? 'flex' : 'none'; };
+let flashT; function flash(t) { show(t, true); clearTimeout(flashT); flashT = setTimeout(() => show(''), 3500); }
+
+// ---- hosts / presence ----
+function buildHosts() {
+  $('#hosts').innerHTML = '';
+  for (const n of HOSTS) {
+    const b = document.createElement('button');
+    b.className = 'host'; b.id = 'h-' + n; b.innerHTML = '<span class="dot"></span>' + n;
+    b.onclick = () => connect(n);
+    $('#hosts').append(b);
+  }
+}
+async function openSock(n, g) {
+  if (g !== gen) return;
+  const s = socks[n] || (socks[n] = { online: false, ws: null, room: null, hb: null });
+  s.room = await RC.room(n);
+  const ws = RC.connect(s.room);
+  s.ws = ws;
+  ws.onopen = () => { clearInterval(s.hb); s.hb = setInterval(() => { try { ws.send('ping'); } catch {} }, 20000); };
+  ws.onmessage = (e) => {
+    if (e.data === 'pong') return;
+    let m; try { m = JSON.parse(e.data); } catch { return; }
+    if (m.t === 'presence') { s.online = m.host; $('#h-' + n).classList.toggle('on', m.host); }
+    else if (cur && cur.name === n) onSignal(m);
+  };
+  ws.onclose = () => {
+    clearInterval(s.hb); s.online = false; const b = $('#h-' + n); if (b) b.classList.remove('on');
+    if (cur && cur.name === n && g === gen) show('Lost contact with the relay.', true);
+    if (g === gen) setTimeout(() => openSock(n, g), 3000);
+  };
+  ws.onerror = () => {};
+}
+function startAll() {
+  gen++; disconnect(true);
+  for (const n of Object.keys(socks)) { try { socks[n].ws.onclose = null; socks[n].ws.close(); } catch {} clearInterval(socks[n].hb); delete socks[n]; }
+  buildHosts();
+  if (!cfg.key) { $('#setup').style.display = 'flex'; show('Open the gear, type the shared key once, Save.'); return; }
+  show('');
+  HOSTS.forEach((n) => openSock(n, gen));
+}
+
+// ---- WebRTC (ported from the extension viewer) ----
+function bitrateHints(sdp, maxKbps) {
+  const start = Math.min(maxKbps, 6000), min = Math.min(maxKbps, 2000);
+  const hint = `x-google-start-bitrate=${start};x-google-min-bitrate=${min};x-google-max-bitrate=${maxKbps}`;
+  const lines = sdp.split('\r\n'), out = [], video = new Set();
+  let inVideo = false;
+  for (const l of lines) { if (l.startsWith('m=')) inVideo = l.startsWith('m=video'); if (inVideo) { const m = l.match(/^a=rtpmap:(\d+) (VP8|VP9|H264|AV1)\//i); if (m) video.add(m[1]); } }
+  for (const l of lines) {
+    const f = l.match(/^a=fmtp:(\d+) (.*)$/);
+    if (f && video.has(f[1])) { out.push(`a=fmtp:${f[1]} ${f[2]};${hint}`); continue; }
+    out.push(l);
+    const m = l.match(/^a=rtpmap:(\d+) (VP8|VP9|H264|AV1)\//i);
+    if (m && !lines.some((x) => x.startsWith(`a=fmtp:${m[1]} `))) out.push(`a=fmtp:${m[1]} ${hint}`);
+  }
+  return out.join('\r\n');
+}
+function codecPrefs(tr, want) {
+  if (want === 'auto') return;
+  try {
+    const caps = RTCRtpReceiver.getCapabilities('video').codecs, key = 'video/' + want.toLowerCase();
+    const first = caps.filter((c) => c.mimeType.toLowerCase() === key);
+    if (first.length) tr.setCodecPreferences([...first, ...caps.filter((c) => c.mimeType.toLowerCase() !== key)]);
+  } catch (e) { console.warn('codec prefs', e); }
+}
+async function connect(n) {
+  const s = socks[n];
+  if (!s || !s.ws || s.ws.readyState !== 1) return show('Relay not reachable yet. Try again in a moment.', true);
+  if (!s.online) return show(n + ' is offline (Chrome not running there, or host mode not set up).', true);
+  disconnect(true);
+  show('Connecting to ' + n + '…');
+  const sid = Math.random().toString(36).slice(2, 10);
+  const pc = new RTCPeerConnection({ iceServers: ICE });
+  const c = cur = { name: n, pc, dc: null, sid, ws: s.ws, ready: false };
+  document.querySelectorAll('.host').forEach((b) => b.classList.toggle('cur', b.id === 'h-' + n));
+  const dc = c.dc = pc.createDataChannel('ctl', { ordered: true });
+  dc.onopen = () => { c.ready = true; sendQ(); onConnected(); };
+  dc.onmessage = onDc;
+  dc.onclose = () => { if (cur === c) { show('Connection closed.', true); disconnect(true); } };
+  const tr = pc.addTransceiver('video', { direction: 'recvonly' });
+  codecPrefs(tr, $('#codec').value);
+  pc.ontrack = (e) => {
+    try { e.receiver.jitterBufferTarget = 0; } catch {}
+    try { e.receiver.playoutDelayHint = 0; } catch {}
+    $('#v').srcObject = e.streams[0] || new MediaStream([e.track]);
+    $('#v').play().catch(() => {});
+  };
+  pc.onicecandidate = (e) => { if (e.candidate) s.ws.send(JSON.stringify({ t: 'ice', sid, c: e.candidate.toJSON() })); };
+  pc.onconnectionstatechange = () => {
+    if (cur !== c) return;
+    if (pc.connectionState === 'failed') show('Could not connect directly (this network blocks peer-to-peer; a TURN relay would be needed). Try Wi-Fi.', true);
+  };
+  const offer = await pc.createOffer();
+  offer.sdp = bitrateHints(offer.sdp, +$('#kbps').value);
+  await pc.setLocalDescription(offer);
+  const ts = Date.now();
+  s.ws.send(JSON.stringify({ t: 'offer', sid, ts, sdp: offer.sdp, sig: await RC.sign(`offer|${sid}|${ts}|${offer.sdp}`) }));
+  c.timeout = setTimeout(() => { if (cur === c && !c.ready) { show('No answer from ' + n + '.', true); disconnect(true); } }, 20000);
+}
+async function onSignal(m) {
+  const c = cur; if (!c) return;
+  if (m.t === 'answer' && m.sid === c.sid) {
+    if (!(await RC.verify(`answer|${m.sid}|${m.ts}|${m.sdp}`, m.sig))) return show('Answer had a bad signature. Refusing.', true);
+    await c.pc.setRemoteDescription({ type: 'answer', sdp: m.sdp });
+  } else if (m.t === 'ice' && m.sid === c.sid) c.pc.addIceCandidate(m.c).catch(() => {});
+  else if (m.t === 'error') { show(m.msg, true); disconnect(true); }
+}
+const CTRL = ['btnDisc', 'bBack', 'bFwd', 'bRel', 'url', 'bGo', 'bNew', 'bClose', 'bPaste', 'bMode', 'bKb', 'tabsel'];
+function onConnected() {
+  show('');
+  CTRL.forEach((id) => { $('#' + id).disabled = false; });
+  $('#stage').focus();
+  pollTabs(); tabsTimer = setInterval(pollTabs, 2000);
+  lastBytes = 0; lastT = 0; statsTimer = setInterval(stats, 1000);
+}
+function disconnect(quiet) {
+  const c = cur; cur = null;
+  clearInterval(tabsTimer); clearInterval(statsTimer);
+  if (c) {
+    clearTimeout(c.timeout);
+    try { c.ws.send(JSON.stringify({ t: 'bye' })); } catch {}
+    try { c.dc.close(); } catch {} try { c.pc.close(); } catch {}
+  }
+  $('#v').srcObject = null; $('#stats').textContent = '';
+  $('#tabsel').innerHTML = '<option>Tabs</option>';
+  CTRL.forEach((id) => { $('#' + id).disabled = true; });
+  $('#keys').style.display = 'none';
+  document.querySelectorAll('.host').forEach((b) => b.classList.remove('cur'));
+  if (!quiet) show('Disconnected.');
+  rpcWait.clear(); selTab = null;
+}
+$('#btnDisc').onclick = () => disconnect(false);
+
+// ---- data channel ----
+const send = (o) => { if (cur && cur.dc && cur.dc.readyState === 'open') cur.dc.send(JSON.stringify(o)); };
+function onDc(e) {
+  let m; try { m = JSON.parse(e.data); } catch { return; }
+  if (m.t === 'rpcR') { const w = rpcWait.get(m.id); if (w) { rpcWait.delete(m.id); m.ok ? w.res(m.r) : w.rej(new Error(m.err)); } }
+  else if (m.t === 'err') flash(m.msg);
+  else if (m.t === 'pong') { if (cur) cur.rtt = Date.now() - m.ts; }
+}
+function rpc(op, args) {
+  return new Promise((res, rej) => {
+    const id = rpcId++; rpcWait.set(id, { res, rej });
+    send({ t: 'rpc', id, op, args });
+    setTimeout(() => { if (rpcWait.delete(id)) rej(new Error('timeout')); }, 8000);
+  });
+}
+function sendQ() { send({ t: 'q', hint: $('#hint').value, kbps: +$('#kbps').value, fps: +$('#fps').value }); }
+['hint', 'kbps', 'fps'].forEach((id) => { $('#' + id).onchange = sendQ; });
+$('#codec').onchange = () => { if (cur) { const n = cur.name; disconnect(true); connect(n); } };
+
+// ---- tabs + toolbar ----
+async function pollTabs() {
+  if (!cur) return;
+  send({ t: 'ping', ts: Date.now() });
+  try { renderTabs(await rpc('tabs')); } catch {}
+}
+function renderTabs(list) {
+  const sel = $('#tabsel');
+  const front = list.find((t) => t.fw && t.active) || list.find((t) => t.active);
+  if (!selTab || !list.some((t) => t.id === selTab)) selTab = front && front.id;
+  if (document.activeElement !== sel) {
+    sel.innerHTML = '';
+    for (const t of list) {
+      const o = document.createElement('option');
+      o.value = t.id; o.textContent = ((t.fw && t.active) ? '● ' : '') + (t.title || t.url || '(untitled)').slice(0, 40);
+      if (t.id === selTab) o.selected = true;
+      sel.append(o);
+    }
+  }
+  const t = list.find((x) => x.id === selTab);
+  if (t && document.activeElement !== $('#url')) $('#url').value = t.url;
+}
+$('#tabsel').onchange = async (e) => {
+  selTab = +e.target.value; try { await rpc('activate', { tabId: selTab }); } catch (er) { flash(er.message); } pollTabs(); e.target.blur();
+};
+const act = (fn) => async () => { if (selTab == null) return; try { await fn(); } catch (e) { flash(e.message); } setTimeout(pollTabs, 400); };
+$('#bBack').onclick = act(() => rpc('hist', { tabId: selTab, dir: 'back' }));
+$('#bFwd').onclick = act(() => rpc('hist', { tabId: selTab, dir: 'fwd' }));
+$('#bRel').onclick = act(() => rpc('hist', { tabId: selTab, dir: 'reload' }));
+$('#bClose').onclick = act(() => rpc('close', { tabId: selTab }));
+$('#bNew').onclick = async () => {
+  try { selTab = await rpc('newtab', {}); flash('New tab opened. Type an address above and press Go.'); } catch (e) { flash(e.message); }
+  setTimeout(pollTabs, 400);
+};
+const go = act(() => {
+  let u = $('#url').value.trim(); if (!u) return;
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(u)) u = /^[^\s]+\.[^\s]+$/.test(u) ? 'https://' + u : 'https://www.google.com/search?q=' + encodeURIComponent(u);
+  return rpc('nav', { tabId: selTab, url: u });
+});
+$('#bGo').onclick = go;
+$('#url').onkeydown = (e) => { if (e.key === 'Enter') { go(); e.target.blur(); } };
+async function pasteLocal() {
+  try { const t = await navigator.clipboard.readText(); if (t) send({ t: 'in', k: 'tx', text: t }); else flash('Clipboard is empty.'); }
+  catch (e) { flash('Clipboard blocked: ' + e.message + ' (use the Keys button and type/paste in the box that opens)'); }
+}
+$('#bPaste').onclick = pasteLocal;
+
+// ---- settings ----
+$('#bSet').onclick = () => {
+  const el = $('#setup'); const on = el.style.display === 'none' || !el.style.display;
+  el.style.display = on ? 'flex' : 'none'; $('#relayIn').value = cfg.relay;
+};
+$('#keySave').onclick = () => {
+  const k = $('#keyIn').value.trim(), r = $('#relayIn').value.trim() || DEF_RELAY;
+  if (k) { cfg.key = k; LS.set('rc.key', k); $('#keyIn').value = ''; }
+  cfg.relay = r; LS.set('rc.relay', r);
+  $('#setup').style.display = 'none'; startAll();
+};
+$('#bFs').onclick = () => { const d = document.documentElement; (document.fullscreenElement ? document.exitFullscreen() : (d.requestFullscreen || d.webkitRequestFullscreen).call(d)).catch?.(() => {}); };
+
+// ---- input: coordinates ----
+const v = $('#v'), stage = $('#stage');
+function uv(cx, cy) {
+  const r = v.getBoundingClientRect(), vw = v.videoWidth, vh = v.videoHeight;
+  if (!vw || !vh) return null;
+  const sc = Math.min(r.width / vw, r.height / vh), cw = vw * sc, ch = vh * sc;
+  const x = (cx - r.left - (r.width - cw) / 2) / cw, y = (cy - r.top - (r.height - ch) / 2) / ch;
+  if (x < 0 || x > 1 || y < 0 || y > 1) return null;
+  return { u: x, v: y };
+}
+const mods = (e) => (e.altKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.metaKey ? 4 : 0) | (e.shiftKey ? 8 : 0);
+function ripple(cx, cy) {
+  const r = $('#ripple'), b = stage.getBoundingClientRect();
+  r.style.left = (cx - b.left) + 'px'; r.style.top = (cy - b.top) + 'px'; r.style.display = 'block';
+  clearTimeout(ripple.t); ripple.t = setTimeout(() => { r.style.display = 'none'; }, 220);
+}
+const click = async (p, btn, cc) => {
+  send({ t: 'in', k: 'mm', ...p, b: 0, bs: 0, mod: 0 });
+  send({ t: 'in', k: 'md', ...p, b: btn, bs: btn === 2 ? 2 : 1, cc, mod: 0 });
+  await sleep(40);
+  send({ t: 'in', k: 'mu', ...p, b: btn, bs: 0, cc, mod: 0 });
+};
+
+// ---- input: pointer (mouse + touch) ----
+let touchMode = 'scroll';            // 'scroll' | 'drag'
+$('#bMode').onclick = () => { touchMode = touchMode === 'scroll' ? 'drag' : 'scroll'; $('#bMode').textContent = 'Touch: ' + (touchMode === 'scroll' ? 'Scroll' : 'Drag'); $('#bMode').classList.toggle('on', touchMode === 'drag'); };
+let moveE = null, raf = 0;
+const g = { id: null, type: '', x0: 0, y0: 0, x: 0, y: 0, t0: 0, moved: false, long: null, dragging: false, lastTap: 0, lastTapX: 0, lastTapY: 0 };
+
+v.addEventListener('pointerdown', (e) => {
+  if (!cur) return;
+  stage.focus();
+  if (e.pointerType === 'mouse') {
+    const p = uv(e.clientX, e.clientY); if (!p) return;
+    v.setPointerCapture(e.pointerId);
+    send({ t: 'in', k: 'md', ...p, b: e.button, bs: e.buttons, cc: e.detail || 1, mod: mods(e) });
+    e.preventDefault(); return;
+  }
+  if (g.id !== null) return;           // single finger only
+  g.id = e.pointerId; g.type = 'touch'; g.x0 = g.x = e.clientX; g.y0 = g.y = e.clientY; g.t0 = Date.now(); g.moved = false; g.dragging = false;
+  v.setPointerCapture(e.pointerId);
+  clearTimeout(g.long);
+  g.long = setTimeout(() => {         // long press = right click
+    if (g.id === null || g.moved) return;
+    const p = uv(g.x, g.y); if (p) { ripple(g.x, g.y); click(p, 2, 1); }
+    g.long = 'done';
+  }, 550);
+  e.preventDefault();
+});
+v.addEventListener('pointermove', (e) => {
+  if (!cur) return;
+  if (e.pointerType === 'mouse') {
+    moveE = e;
+    if (!raf) raf = requestAnimationFrame(() => {
+      raf = 0; const p = moveE && uv(moveE.clientX, moveE.clientY); if (!p || !cur) return;
+      if (cur.dc.bufferedAmount > 65536) return;
+      send({ t: 'in', k: 'mm', ...p, b: moveE.button, bs: moveE.buttons, mod: mods(moveE) });
+    });
+    return;
+  }
+  if (e.pointerId !== g.id) return;
+  const dx = e.clientX - g.x, dy = e.clientY - g.y;
+  if (!g.moved && Math.hypot(e.clientX - g.x0, e.clientY - g.y0) < 8) return;
+  if (g.long === 'done') return;
+  if (!g.moved) { g.moved = true; clearTimeout(g.long); }
+  g.x = e.clientX; g.y = e.clientY;
+  const p = uv(e.clientX, e.clientY);
+  if (touchMode === 'drag') {
+    const p0 = uv(g.x0, g.y0);
+    if (!g.dragging && p0) { g.dragging = true; send({ t: 'in', k: 'mm', ...p0, b: 0, bs: 0, mod: 0 }); send({ t: 'in', k: 'md', ...p0, b: 0, bs: 1, cc: 1, mod: 0 }); }
+    if (p && cur.dc.bufferedAmount < 65536) send({ t: 'in', k: 'mm', ...p, b: 0, bs: 1, mod: 0 });
+  } else if (p) {
+    const r = v.getBoundingClientRect(), vw = v.videoWidth || 1;
+    const k = 1.6 * vw / r.width;      // finger px -> remote px, a bit faster than 1:1
+    send({ t: 'in', k: 'mw', ...p, dx: -dx * k, dy: -dy * k, mod: 0 });
+  }
+  e.preventDefault();
+});
+function endTouch(e, cancelled) {
+  if (e.pointerType === 'mouse') {
+    if (!cur) return;
+    const p = uv(e.clientX, e.clientY) || { u: 0.5, v: 0.5 };
+    send({ t: 'in', k: 'mu', ...p, b: e.button, bs: e.buttons, cc: e.detail || 1, mod: mods(e) });
+    return;
+  }
+  if (e.pointerId !== g.id) return;
+  clearTimeout(g.long);
+  const wasLong = g.long === 'done'; g.id = null; g.long = null;
+  if (!cur || cancelled) return;
+  const p = uv(e.clientX, e.clientY) || uv(g.x0, g.y0);
+  if (g.dragging) { if (p) send({ t: 'in', k: 'mu', ...p, b: 0, bs: 0, cc: 1, mod: 0 }); g.dragging = false; return; }
+  if (g.moved || wasLong || !p) return;
+  // tap / double tap
+  const now = Date.now(), dbl = now - g.lastTap < 380 && Math.hypot(e.clientX - g.lastTapX, e.clientY - g.lastTapY) < 30;
+  g.lastTap = dbl ? 0 : now; g.lastTapX = e.clientX; g.lastTapY = e.clientY;
+  ripple(e.clientX, e.clientY);
+  click(p, 0, dbl ? 2 : 1);
+}
+v.addEventListener('pointerup', (e) => endTouch(e, false));
+v.addEventListener('pointercancel', (e) => endTouch(e, true));
+v.addEventListener('wheel', (e) => {
+  const p = uv(e.clientX, e.clientY); if (!p || !cur) return; e.preventDefault();
+  const k = e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? 800 : 1;
+  send({ t: 'in', k: 'mw', ...p, dx: e.deltaX * k, dy: e.deltaY * k, mod: mods(e) });
+}, { passive: false });
+v.addEventListener('contextmenu', (e) => e.preventDefault());
+
+// ---- input: keyboard ----
+const KC = { Backspace: 8, Tab: 9, Enter: 13, Escape: 27, PageUp: 33, PageDown: 34, ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, Delete: 46 };
+let ctl = false;
+function pressKey(key, extraMod) {
+  const mod = (extraMod || 0) | (ctl ? 2 : 0);
+  send({ t: 'in', k: 'kd', key, code: key.length === 1 ? 'Key' + key.toUpperCase() : key, kc: KC[key] || key.toUpperCase().charCodeAt(0), text: key === 'Enter' ? '\r' : key.length === 1 ? key : undefined, mod, rep: false });
+  send({ t: 'in', k: 'ku', key, code: key.length === 1 ? 'Key' + key.toUpperCase() : key, kc: KC[key] || key.toUpperCase().charCodeAt(0), mod });
+}
+$('#bCtl').onclick = () => { ctl = !ctl; $('#bCtl').classList.toggle('on', ctl); };
+document.querySelectorAll('#keys [data-k]').forEach((b) => { b.onclick = () => { pressKey(b.dataset.k); if (ctl) { ctl = false; $('#bCtl').classList.remove('on'); } }; });
+$('#bKb').onclick = () => {
+  const k = $('#keys');
+  const on = k.style.display !== 'flex';
+  k.style.display = on ? 'flex' : 'none';
+  if (on) { const h = $('#hid'); h.value = ''; h.focus(); } else $('#hid').blur();
+};
+// Phone keyboard: typed text goes through a hidden textarea.
+const hid = $('#hid');
+hid.addEventListener('beforeinput', (e) => {
+  if (!cur) return;
+  e.preventDefault();
+  if (e.inputType === 'insertText' || e.inputType === 'insertCompositionText' || e.inputType === 'insertFromPaste') {
+    if (e.data) { if (ctl && e.data.length === 1) { pressKey(e.data); ctl = false; $('#bCtl').classList.remove('on'); } else send({ t: 'in', k: 'tx', text: e.data }); }
+  } else if (e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph') pressKey('Enter');
+  else if (e.inputType === 'deleteContentBackward') pressKey('Backspace');
+  else if (e.inputType === 'deleteContentForward') pressKey('Delete');
+});
+hid.addEventListener('keydown', (e) => {   // physical keys / keys Android keyboards do report
+  if (!cur) return;
+  if (e.key === 'Unidentified' || e.key === 'Process') return;
+  if (e.key.length === 1 && !(e.ctrlKey || e.metaKey)) return;   // handled by beforeinput
+  e.preventDefault();
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') return pasteLocal();
+  send({ t: 'in', k: 'kd', key: e.key, code: e.code, kc: e.keyCode, text: undefined, mod: mods(e), rep: e.repeat });
+  send({ t: 'in', k: 'ku', key: e.key, code: e.code, kc: e.keyCode, mod: mods(e) });
+});
+// Desktop: type straight into the stage like the extension viewer.
+stage.addEventListener('keydown', (e) => {
+  if (!cur) return;
+  e.preventDefault(); e.stopPropagation();
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') return pasteLocal();
+  send({ t: 'in', k: 'kd', key: e.key, code: e.code, kc: e.keyCode, text: e.key === 'Enter' ? '\r' : e.key.length === 1 ? e.key : undefined, mod: mods(e), rep: e.repeat });
+});
+stage.addEventListener('keyup', (e) => {
+  if (!cur) return; e.preventDefault(); e.stopPropagation();
+  send({ t: 'in', k: 'ku', key: e.key, code: e.code, kc: e.keyCode, mod: mods(e) });
+});
+
+// ---- stats ----
+async function stats() {
+  const c = cur; if (!c) return;
+  const r = await c.pc.getStats(); const s = [];
+  r.forEach((x) => {
+    if (x.type === 'inbound-rtp' && x.kind === 'video') {
+      const now = performance.now(), kbps = lastT ? Math.round(((x.bytesReceived - lastBytes) * 8) / (now - lastT)) : 0;
+      lastBytes = x.bytesReceived; lastT = now;
+      s.push(`${x.frameWidth || 0}×${x.frameHeight || 0}`, `${Math.round(x.framesPerSecond || 0)} fps`, `${kbps} kbps`);
+    }
+  });
+  if (c.rtt != null) s.push(`${c.rtt} ms`);
+  $('#stats').textContent = s.join(' · ');
+}
+
+window.__rc = { connect, startAll, cfg };
+startAll();
+const q = new URLSearchParams(location.search).get('connect');
+if (q) (async () => { for (let i = 0; i < 60 && !(socks[q] && socks[q].online); i++) await sleep(500); connect(q); })();
+</script>
+</body></html>
