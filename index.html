@@ -44,6 +44,8 @@ h2 { font-size: 0.95em; color: var(--mute); margin: 18px 0 6px; display: flex; f
 .overview-table td { padding: 3px 6px; border-bottom: 1px solid var(--line2); font-size: 12px; vertical-align: middle; line-height: 1.25; overflow: hidden; }
 .overview-table tbody tr:last-child td { border-bottom: none; }
 .overview-table tbody tr:hover { background: var(--head); }
+.overview-table .notecell { white-space: normal; line-height: 1.2; }
+.overview-table .failnote { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: #c0392b; font-weight: 600; font-size: 11px; margin-bottom: 1px; }
 .overview-table tbody tr.row-stale { background-color: #ffdcdc; }
 .overview-table tbody tr.row-stale:hover { background-color: #ffc7c7; }
 .overview-table tbody tr.row-failed { background-color: var(--rowfail); }
@@ -210,7 +212,7 @@ function rowsOf(o) {
       : fromFile;
     const a = (L, k) => (L || []).slice(0, 3).filter(e => e[k] != null).map(e => [e[k], e.gain || 0]);
     return Object.assign({ id, n: p.name, file: p.file, ver: p.profileVersion, en: p.enabled !== false ? 1 : 0, ord: p.order || 0, st: p.lastStatus || '', lastAt: p.lastRunAt, nextAt: p.nextRunAt,
-      gc: a(p.gcLast3, 'gc'), sc: a(p.scLast3, 'sc'), why: p.softFailReason || '', pending: !s },
+      gc: a(p.gcLast3, 'gc'), sc: a(p.scLast3, 'sc'), why: p.softFailReason || '', rt: p.lastRunTime || '', pending: !s },
       s || { rule: 'midnight', hrs: 24, auth: 'credentials', host: '', notes: '', steps: 1, type: '' });
   });
 }
@@ -248,6 +250,15 @@ function nextTxt(p) {
   if (d < 0) return 'overdue ' + span(d);
   return d < 86400000 ? 'in ' + span(d) : dt(p.nextAt, { month: 'short', day: 'numeric' }) + ', ' + dt(p.nextAt, { hour: 'numeric', minute: '2-digit' });
 }
+// Why the last run did not succeed, shown at the start of the Notes cell. Computed from the CURRENT status, so it disappears by itself after the
+// next success / Mark OK and is replaced by the new reason after the next failure. (Soft Fail / Needs Attention keep softFailReason; Failed / Retrying
+// keep the error text in lastRunTime.)
+function failNote(p) {
+  const st = String(p.st || '');
+  if (/^(Soft Fail|Needs Attention|Success \(Unverified\))/.test(st)) return p.why || '';
+  if (/^(Failed|Retrying)/.test(st)) return String(p.rt || '').trim();   // Stopped* statuses keep a date in lastRunTime, not a reason, so they show nothing here
+  return '';
+}
 function queuedNote(o, p) { const q = LS.get('co.q.' + o + '.' + p.id, 0); if (!q) return ''; if (Date.now() - q > 3 * 3600000 || (p.lastAt && p.lastAt > q)) { LS.del('co.q.' + o + '.' + p.id); return ''; } return '⏳ retry queued ' + dt(q, { hour: 'numeric', minute: '2-digit' }); }
 function row(o, p) {
   const running = /^(Running|Retrying)/.test(p.st);
@@ -255,6 +266,7 @@ function row(o, p) {
   const conf = pendingConfirm[o + '|' + p.id];
   const why = p.why ? `title="${esc(p.why)}" style="cursor:help;text-decoration:underline dotted"` : '';
   const qn = queuedNote(o, p);
+  const fn = failNote(p);
   return `<tr class="${rowCls(p)}" data-id="${esc(p.id)}">
   <td><div class="c1"><button class="open" disabled style="opacity:.45" title="Open detail: only in the extension for now">📂</button><input type="checkbox" ${p.en ? 'checked' : ''} disabled title="On/off: change it in the extension for now" aria-label="On"></div></td>
   <td><div style="display:flex;align-items:center;gap:3px"><input type="text" class="nm" value="${esc(p.n)}" readonly style="flex:1 1 auto;min-width:0"><button class="mini retry ic ${conf ? 'confirm' : ''}" data-act="retry" title="${conf ? 'Tap again to queue a run' : 'Queue a run on ' + o + "'s Chrome"}" ${retryOff ? 'disabled' : ''}>${running ? '⏳' : conf ? 'Run?' : 'R'}</button>${isBroken(p) ? '<button class="mini okb ic" disabled style="opacity:.45" title="Mark OK: coming next">O</button>' : ''}</div></td>
@@ -264,7 +276,7 @@ function row(o, p) {
   <td><span class="${stCls(p)} trunc" ${why}>${esc(stTxt(p))}</span><span class="sub trunc">${esc(qn || lastTxt(p.lastAt))}</span></td>
   <td class="bal num">${bal(p.gc, 0)}</td>
   <td class="bal num">${bal(p.sc, 2)}</td>
-  <td><input type="text" value="${esc(p.notes)}" placeholder="" title="${esc(p.notes)}" readonly></td></tr>`;
+  <td class="notecell" title="${esc((fn ? fn + (p.notes ? '\n\n' : '') : '') + (p.notes || ''))}">${fn ? `<span class="failnote">⚠ ${esc(fn)}</span>` : ''}<span class="sub trunc">${esc(p.notes)}</span></td></tr>`;
 }
 function table(o, list) {
   const cols = ['64px', '16%', '150px', '116px', '110px', '134px', '146px', '118px', 'auto'];
