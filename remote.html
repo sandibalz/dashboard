@@ -34,6 +34,7 @@ button.tog.on{background:#26344d;border-color:#6ea8ff}
   <button id="btnDisc" disabled>Disconnect</button>
   <button id="bSet" title="Key and relay">&#9881;</button>
   <button id="bFs" title="Full screen">&#9974;</button>
+  <button id="bLog" title="Connection log">Log</button>
   <span id="stats"></span>
 </div>
 <div id="setup">
@@ -55,12 +56,14 @@ button.tog.on{background:#26344d;border-color:#6ea8ff}
   <button id="bPaste" disabled>Paste</button>
   <button id="bMode" class="tog" disabled>Touch: Scroll</button>
   <button id="bKb" disabled>&#9000; Keys</button>
+  <button id="bIn" class="tog" disabled title="Where clicks and typing go">Input: ?</button>
 </div>
 <div class="bar" id="keys">
   <button data-k="Escape">Esc</button><button data-k="Tab">Tab</button><button data-k="Backspace">&#9003;</button><button data-k="Enter">Enter</button>
   <button data-k="ArrowLeft">&#8592;</button><button data-k="ArrowUp">&#8593;</button><button data-k="ArrowDown">&#8595;</button><button data-k="ArrowRight">&#8594;</button>
   <button data-k="PageUp">PgUp</button><button data-k="PageDown">PgDn</button><button id="bCtl" class="tog">Ctrl</button>
 </div>
+<pre id="dbg" style="display:none;position:fixed;left:6px;right:6px;bottom:6px;max-height:45vh;overflow:auto;margin:0;padding:8px;background:#000d;color:#9fe;font:11px/1.35 ui-monospace,monospace;white-space:pre-wrap;z-index:9;border:1px solid #345;border-radius:8px"></pre>
 <div id="stage" tabindex="0">
   <video id="v" autoplay playsinline muted></video>
   <div id="ripple"></div>
@@ -94,6 +97,9 @@ const RC = {
 let cur = null, tabsTimer = null, statsTimer = null, rpcId = 1, lastBytes = 0, lastT = 0, selTab = null, gen = 0;
 const socks = {}, rpcWait = new Map();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const DLOG = []; let dT0 = Date.now();
+function dlog(t) { const l = ((Date.now() - dT0) / 1000).toFixed(1).padStart(5) + 's ' + t; DLOG.push(l); if (DLOG.length > 300) DLOG.shift(); const d = document.getElementById('dbg'); if (d && d.style.display !== 'none') { d.textContent = DLOG.join('\n'); d.scrollTop = d.scrollHeight; } }
+document.addEventListener('click', (e) => { if (e.target.id === 'bLog') { const d = $('#dbg'); const on = d.style.display === 'none'; d.style.display = on ? 'block' : 'none'; if (on) { d.textContent = DLOG.join('\n') || '(nothing yet: tap a PC first)'; d.scrollTop = d.scrollHeight; } } });
 
 const show = (t, err) => { const m = $('#msg'); m.textContent = t || ''; m.classList.toggle('err', !!err); m.style.display = t ? 'flex' : 'none'; };
 let flashT; function flash(t) { show(t, true); clearTimeout(flashT); flashT = setTimeout(() => show(''), 3500); }
@@ -118,10 +124,13 @@ async function openSock(n, g) {
   ws.onmessage = (e) => {
     if (e.data === 'pong') return;
     let m; try { m = JSON.parse(e.data); } catch { return; }
+    if (m.t !== 'presence' && m.t !== 'hello') dlog(`${n}: relay msg ${m.t}${m.sid ? ' sid ' + m.sid : ''}${m.msg ? ' ' + m.msg : ''}`);
     if (m.t === 'presence') { s.online = m.host; $('#h-' + n).classList.toggle('on', m.host); }
     else if (cur && cur.name === n) onSignal(m);
   };
+  ws.onopen = ((prev) => () => { prev(); dlog(`${n}: relay socket open`); })(ws.onopen);
   ws.onclose = () => {
+    dlog(`${n}: relay socket closed`);
     clearInterval(s.hb); s.online = false; const b = $('#h-' + n); if (b) b.classList.remove('on');
     if (cur && cur.name === n && g === gen) show('Lost contact with the relay.', true);
     if (g === gen) setTimeout(() => openSock(n, g), 3000);
@@ -166,13 +175,14 @@ async function connect(n) {
   if (!s || !s.ws || s.ws.readyState !== 1) return show('Relay not reachable yet. Try again in a moment.', true);
   if (!s.online) return show(n + ' is offline (Chrome not running there, or host mode not set up).', true);
   disconnect(true);
+  dT0 = Date.now(); DLOG.length = 0; dlog(`connect ${n}; relay ws state ${s.ws.readyState}; ua ${navigator.userAgent.slice(0, 90)}`);
   show('Connecting to ' + n + '…');
   const sid = Math.random().toString(36).slice(2, 10);
   const pc = new RTCPeerConnection({ iceServers: ICE });
   const c = cur = { name: n, pc, dc: null, sid, ws: s.ws, ready: false };
   document.querySelectorAll('.host').forEach((b) => b.classList.toggle('cur', b.id === 'h-' + n));
   const dc = c.dc = pc.createDataChannel('ctl', { ordered: true });
-  dc.onopen = () => { c.ready = true; sendQ(); onConnected(); };
+  dc.onopen = () => { dlog('data channel open'); c.ready = true; sendQ(); onConnected(); };
   dc.onmessage = onDc;
   dc.onclose = () => { if (cur === c) { show('Connection closed.', true); disconnect(true); } };
   const tr = pc.addTransceiver('video', { direction: 'recvonly' });
@@ -183,8 +193,11 @@ async function connect(n) {
     $('#v').srcObject = e.streams[0] || new MediaStream([e.track]);
     $('#v').play().catch(() => {});
   };
-  pc.onicecandidate = (e) => { if (e.candidate) s.ws.send(JSON.stringify({ t: 'ice', sid, c: e.candidate.toJSON() })); };
+  pc.onicecandidate = (e) => { if (e.candidate) { const ty = (e.candidate.candidate.match(/ typ (\w+)/) || [])[1]; dlog('local ice ' + ty); s.ws.send(JSON.stringify({ t: 'ice', sid, c: e.candidate.toJSON() })); } else dlog('local ice gathering done'); };
+  pc.oniceconnectionstatechange = () => dlog('ice state ' + pc.iceConnectionState);
+  pc.onicegatheringstatechange = () => dlog('gathering ' + pc.iceGatheringState);
   pc.onconnectionstatechange = () => {
+    dlog('pc state ' + pc.connectionState);
     if (cur !== c) return;
     if (pc.connectionState === 'failed') show('Could not connect directly (this network blocks peer-to-peer; a TURN relay would be needed). Try Wi-Fi.', true);
   };
@@ -193,19 +206,37 @@ async function connect(n) {
   await pc.setLocalDescription(offer);
   const ts = Date.now();
   s.ws.send(JSON.stringify({ t: 'offer', sid, ts, sdp: offer.sdp, sig: await RC.sign(`offer|${sid}|${ts}|${offer.sdp}`) }));
-  c.timeout = setTimeout(() => { if (cur === c && !c.ready) { show('No answer from ' + n + '.', true); disconnect(true); } }, 20000);
+  dlog(`offer sent, sdp ${offer.sdp.length} bytes, video codecs: ${[...new Set((offer.sdp.match(/a=rtpmap:\d+ (H264|VP8|VP9|AV1)/g) || []).map((x) => x.split(' ')[1]))].join(',')}`);
+  c.timeout = setTimeout(() => { if (cur === c && !c.ready) { dlog('TIMEOUT: no data channel after 20 s; ws state ' + s.ws.readyState + ', ice ' + pc.iceConnectionState + ', pc ' + pc.connectionState + ', remoteDesc ' + !!pc.remoteDescription); show('No answer from ' + n + '. Tap Log for details.', true); disconnect(true); } }, 20000);
 }
 async function onSignal(m) {
   const c = cur; if (!c) return;
+  if (m.t === 'ice') dlog('remote ice ' + ((m.c && m.c.candidate || '').match(/ typ (\w+)/) || [])[1]);
   if (m.t === 'answer' && m.sid === c.sid) {
+    dlog('answer received');
     if (!(await RC.verify(`answer|${m.sid}|${m.ts}|${m.sdp}`, m.sig))) return show('Answer had a bad signature. Refusing.', true);
     await c.pc.setRemoteDescription({ type: 'answer', sdp: m.sdp });
   } else if (m.t === 'ice' && m.sid === c.sid) c.pc.addIceCandidate(m.c).catch(() => {});
   else if (m.t === 'error') { show(m.msg, true); disconnect(true); }
 }
 const CTRL = ['btnDisc', 'bBack', 'bFwd', 'bRel', 'url', 'bGo', 'bNew', 'bClose', 'bPaste', 'bMode', 'bKb', 'tabsel'];
+async function inputStatus() {
+  const b = $('#bIn'); b.disabled = true; b.classList.remove('on');
+  try {
+    const st = await rpc('native');
+    b.dataset.ok = st.connected ? '1' : '';
+    if (!st.connected) b.textContent = 'Input: Chrome only';
+    else { b.textContent = st.mode === 'chrome' ? 'Input: Chrome tabs' : 'Input: Whole desktop'; b.classList.toggle('on', st.mode !== 'chrome'); b.disabled = false; b.dataset.mode = st.mode; }
+  } catch { b.textContent = 'Input: Chrome only'; b.dataset.ok = ''; }
+}
+$('#bIn').onclick = async () => {
+  const b = $('#bIn'); if (!b.dataset.ok) return;
+  try { await rpc('setmode', { mode: b.dataset.mode === 'chrome' ? 'auto' : 'chrome' }); } catch (e) { flash(e.message); }
+  inputStatus();
+};
 function onConnected() {
   show('');
+  setTimeout(inputStatus, 800);
   CTRL.forEach((id) => { $('#' + id).disabled = false; });
   $('#stage').focus();
   pollTabs(); tabsTimer = setInterval(pollTabs, 2000);
@@ -220,7 +251,7 @@ function disconnect(quiet) {
     try { c.dc.close(); } catch {} try { c.pc.close(); } catch {}
   }
   $('#v').srcObject = null; $('#stats').textContent = '';
-  $('#tabsel').innerHTML = '<option>Tabs</option>';
+  $('#tabsel').innerHTML = '<option>Tabs</option>'; $('#bIn').disabled = true; $('#bIn').textContent = 'Input: ?';
   CTRL.forEach((id) => { $('#' + id).disabled = true; });
   $('#keys').style.display = 'none';
   document.querySelectorAll('.host').forEach((b) => b.classList.remove('cur'));
