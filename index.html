@@ -551,6 +551,7 @@ async function boot() {
   catch (e) { showSetup('Sign-in failed: ' + (e.errorMessage || e.message)); return; }
   acct = pca.getActiveAccount() || pca.getAllAccounts()[0] || null;
   if (acct) pca.setActiveAccount(acct); else { showSignIn(); return; }
+  try { const nx = sessionStorage.getItem('co.next'); if (nx && /^[\w./-]*remote\.html(\?[\w=&.-]*)?$/.test(nx)) { sessionStorage.removeItem('co.next'); location.replace(nx); return; } } catch (e) {}   // came from the Remote page's sign-in button: go back
   started = true; render();
   await refreshAll();
   setInterval(() => { if (document.visibilityState === 'visible') refreshAll(); }, 20000);
