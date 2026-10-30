@@ -209,15 +209,26 @@ async function connect(n) {
   dlog(`offer sent, sdp ${offer.sdp.length} bytes, video codecs: ${[...new Set((offer.sdp.match(/a=rtpmap:\d+ (H264|VP8|VP9|AV1)/g) || []).map((x) => x.split(' ')[1]))].join(',')}`);
   c.timeout = setTimeout(() => { if (cur === c && !c.ready) { dlog('TIMEOUT: no data channel after 20 s; ws state ' + s.ws.readyState + ', ice ' + pc.iceConnectionState + ', pc ' + pc.connectionState + ', remoteDesc ' + !!pc.remoteDescription); show('No answer from ' + n + '. Tap Log for details.', true); disconnect(true); } }, 20000);
 }
-async function onSignal(m) {
+// Signals are handled strictly one after another, and ICE candidates wait until the answer is applied
+// (they arrive in the same instant as the answer; adding them early makes the browser drop them).
+function onSignal(m) {
   const c = cur; if (!c) return;
-  if (m.t === 'ice') dlog('remote ice ' + ((m.c && m.c.candidate || '').match(/ typ (\w+)/) || [])[1]);
-  if (m.t === 'answer' && m.sid === c.sid) {
+  c.sigChain = (c.sigChain || Promise.resolve()).then(() => handleSignal(c, m)).catch((e) => { dlog('signal error: ' + (e && e.message)); });
+}
+async function handleSignal(c, m) {
+  if (cur !== c) return;
+  if (m.t === 'ice' && m.sid === c.sid) {
+    dlog('remote ice ' + (((m.c && m.c.candidate) || '').match(/ typ (\w+)/) || [])[1]);
+    if (c.pc.remoteDescription) await c.pc.addIceCandidate(m.c).catch((e) => dlog('addIce failed: ' + e.message));
+    else (c.pendIce || (c.pendIce = [])).push(m.c);
+  } else if (m.t === 'answer' && m.sid === c.sid) {
     dlog('answer received');
     if (!(await RC.verify(`answer|${m.sid}|${m.ts}|${m.sdp}`, m.sig))) return show('Answer had a bad signature. Refusing.', true);
     await c.pc.setRemoteDescription({ type: 'answer', sdp: m.sdp });
-  } else if (m.t === 'ice' && m.sid === c.sid) c.pc.addIceCandidate(m.c).catch(() => {});
-  else if (m.t === 'error') { show(m.msg, true); disconnect(true); }
+    dlog('answer applied, adding ' + (c.pendIce ? c.pendIce.length : 0) + ' waiting candidates');
+    for (const x of (c.pendIce || [])) await c.pc.addIceCandidate(x).catch((e) => dlog('addIce failed: ' + e.message));
+    c.pendIce = [];
+  } else if (m.t === 'error') { show(m.msg, true); disconnect(true); }
 }
 const CTRL = ['btnDisc', 'bBack', 'bFwd', 'bRel', 'url', 'bGo', 'bNew', 'bClose', 'bPaste', 'bMode', 'bKb', 'tabsel'];
 async function inputStatus() {
