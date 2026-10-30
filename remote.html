@@ -178,13 +178,17 @@ async function autoKey() {
   catch (e) { msErr = e.message; dlog('key via Microsoft failed: ' + e.message); show(''); return false; }
 }
 async function startAll() {
-  gen++; disconnect(true);
+  const myGen = ++gen; disconnect(true);
   for (const n of Object.keys(socks)) { try { socks[n].ws.onclose = null; socks[n].ws.close(); } catch {} clearInterval(socks[n].hb); delete socks[n]; }
   buildHosts();
   if (!cfg.key) await autoKey();
   if (!cfg.key) { $('#setup').style.display = 'flex'; $('#keyNote').textContent = msErr; show('No key yet. Open the gear: Sign in with Microsoft (one tap), or type the key once.'); return; }
   $('#keyNote').textContent = cfg.fromMs ? 'Key loaded from your Microsoft sign-in (kept in memory only).' : '';
   show('');
+  if (!cfg.fromMs) setTimeout(async () => {   // a key typed earlier may be out of date (after a key change): if no PC shows up, try the Microsoft key
+    if (gen !== myGen || cfg.fromMs || HOSTS.some((n) => socks[n] && socks[n].online)) return;
+    try { const k = await msKey(); if (k && k !== cfg.key) { dlog('saved key looks out of date; switching to the Microsoft key'); LS.set('rc.key', ''); cfg.key = k; cfg.fromMs = true; startAll(); } } catch (e) { dlog('stale-key check: ' + e.message); }
+  }, 7000);
   HOSTS.forEach((n) => openSock(n, gen));
 }
 
