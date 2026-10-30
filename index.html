@@ -112,7 +112,7 @@ const LS = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
   del(k) { try { localStorage.removeItem(k); } catch (e) {} }
 };
-const cfg = { clientId: LS.get('co.clientId', ''), root: LS.get('co.root', '/Documents/Collector-App') };
+const cfg = { clientId: LS.get('co.clientId', '1ee77fca-2582-4c3d-a13a-84f3ce009772'), root: LS.get('co.root', '/Documents/Collector-App') };
 let pca = null, acct = null, cur = LS.get('co.owner', 'Ben'), started = false, loading = false, progress = '', lastRefresh = 0;
 const state = {};     // owner -> { doc, at, err }
 const statics = {};   // owner -> { file: { v, s } }  (schedule/login/notes read from the profile files, cached by file version)
