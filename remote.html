@@ -170,6 +170,18 @@ function codecPrefs(tr, want) {
     if (first.length) tr.setCodecPreferences([...first, ...caps.filter((c) => c.mimeType.toLowerCase() !== key)]);
   } catch (e) { console.warn('codec prefs', e); }
 }
+// TURN relay credentials from our relay Worker (only if it has TURN set up). Direct is still tried first; TURN is the fallback path.
+async function turnServers(n) {
+  try {
+    const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 2500);
+    const r = await fetch(cfg.relay.replace(/^ws/, 'http') + '/turn?room=' + socks[n].room, { signal: ctl.signal });
+    clearTimeout(t);
+    if (!r.ok) { dlog('turn: not available (' + r.status + ')'); return []; }
+    let a = (await r.json()).iceServers || []; if (!Array.isArray(a)) a = [a];
+    dlog('turn: got ' + a.length + ' server entr' + (a.length === 1 ? 'y' : 'ies'));
+    return a;
+  } catch (e) { dlog('turn: skipped (' + (e.name === 'AbortError' ? 'timeout' : e.message) + ')'); return []; }
+}
 async function connect(n) {
   const s = socks[n];
   if (!s || !s.ws || s.ws.readyState !== 1) return show('Relay not reachable yet. Try again in a moment.', true);
@@ -178,7 +190,8 @@ async function connect(n) {
   dT0 = Date.now(); DLOG.length = 0; dlog(`connect ${n}; relay ws state ${s.ws.readyState}; ua ${navigator.userAgent.slice(0, 90)}`);
   show('Connecting to ' + n + '…');
   const sid = Math.random().toString(36).slice(2, 10);
-  const pc = new RTCPeerConnection({ iceServers: ICE });
+  const extra = await turnServers(n);
+  const pc = new RTCPeerConnection({ iceServers: [...ICE, ...extra] });
   const c = cur = { name: n, pc, dc: null, sid, ws: s.ws, ready: false };
   document.querySelectorAll('.host').forEach((b) => b.classList.toggle('cur', b.id === 'h-' + n));
   const dc = c.dc = pc.createDataChannel('ctl', { ordered: true });
@@ -520,6 +533,7 @@ async function stats() {
   $('#stats').textContent = s.join(' · ');
 }
 
+window.addEventListener('pagehide', () => disconnect(true));   // tell the host we left (matters when embedded and closed)
 window.__rc = { connect, startAll, cfg };
 startAll();
 const q = new URLSearchParams(location.search).get('connect');
