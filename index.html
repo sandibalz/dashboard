@@ -444,69 +444,76 @@ document.addEventListener('click', async e => {
 });
 
 /* ---------- Publish: push index.html from OneDrive to GitHub (replaces opening the Script Sync extension) ---------- */
-const PUB = { repo: 'sandibalz/dashboard', branch: 'main', path: 'index.html', od: '/Documents/collector-overview/index.html' };
-let pubOpen = false, pubState = { msg: '', busy: false, od: null, gh: null, note: '' };
+const PUB = { repo: 'sandibalz/dashboard', branch: 'main', dir: '/Documents/collector-overview/', files: ['index.html', 'remote.html'] };
+let pubOpen = false, pubState = { msg: '', busy: false, files: null, note: '' };
 const ghTok = () => LS.get('co.ghToken', '');
 const b64 = buf => { let s = '', a = new Uint8Array(buf); for (let i = 0; i < a.length; i += 0x8000) s += String.fromCharCode.apply(null, a.subarray(i, i + 0x8000)); return btoa(s); };
 const unb64 = s => { const bin = atob(s.replace(/\s/g, '')), a = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i); return a.buffer; };
 async function gitSha(buf) { const h = new TextEncoder().encode('blob ' + buf.byteLength + '\0'), all = new Uint8Array(h.length + buf.byteLength); all.set(h, 0); all.set(new Uint8Array(buf), h.length); return [...new Uint8Array(await crypto.subtle.digest('SHA-1', all))].map(x => x.toString(16).padStart(2, '0')).join(''); }
-async function odBytes() {
-  const m = await (await g('/me/drive/root:' + enc(PUB.od) + '?select=id,size,lastModifiedDateTime,@microsoft.graph.downloadUrl')).json();
-  const u = m['@microsoft.graph.downloadUrl']; const r = u ? await fetch(u) : await g('/me/drive/root:' + enc(PUB.od) + ':/content');
-  if (!r.ok) throw new Error('OneDrive download ' + r.status);
+async function odBytes(f) {
+  const p = PUB.dir + f;
+  const mr = await g('/me/drive/root:' + enc(p) + '?select=id,size,lastModifiedDateTime,@microsoft.graph.downloadUrl');
+  if (!mr.ok) return null;                              // not in OneDrive (yet)
+  const m = await mr.json();
+  const u = m['@microsoft.graph.downloadUrl']; const r = u ? await fetch(u) : await g('/me/drive/root:' + enc(p) + ':/content');
+  if (!r.ok) throw new Error('OneDrive download ' + r.status + ' for ' + f);
   const buf = await r.arrayBuffer(); return { buf, size: buf.byteLength, mtime: m.lastModifiedDateTime, sha: await gitSha(buf) };
 }
-async function ghCall(method, body) {
-  const r = await fetch('https://api.github.com/repos/' + PUB.repo + '/contents/' + PUB.path + (method === 'GET' ? '?ref=' + PUB.branch : ''), { method, headers: { Authorization: 'Bearer ' + ghTok(), Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' }, body: body ? JSON.stringify(body) : undefined });
+async function ghCall(method, f, body) {
+  const r = await fetch('https://api.github.com/repos/' + PUB.repo + '/contents/' + f + (method === 'GET' ? '?ref=' + PUB.branch : ''), { method, headers: { Authorization: 'Bearer ' + ghTok(), Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' }, body: body ? JSON.stringify(body) : undefined });
   if (r.status === 401) throw new Error('GitHub refused the token (401). It may have expired: paste a new one.');
+  if (r.status === 404 && method === 'GET') return null;   // file not on GitHub yet
   if (r.status === 403 || r.status === 404) throw new Error('GitHub says ' + r.status + '. The token needs Contents read and write on ' + PUB.repo + '.');
   if (r.status === 409 || r.status === 422) throw new Error('GitHub says the file changed since you checked (' + r.status + '). Tap Check again.');
   if (!r.ok) throw new Error('GitHub error ' + r.status);
   return r.json();
 }
 async function pubCheck() {
-  if (!ghTok()) { pubState.od = pubState.gh = null; return; }
-  const [od, gh] = await Promise.all([odBytes(), ghCall('GET')]);
-  pubState.od = { size: od.size, mtime: od.mtime, sha: od.sha, buf: od.buf }; pubState.gh = { size: gh.size, sha: gh.sha, content: gh.content };
+  if (!ghTok()) { pubState.files = null; return; }
+  pubState.files = await Promise.all(PUB.files.map(async f => { const [od, gh] = await Promise.all([odBytes(f), ghCall('GET', f)]); return { f, od, gh, same: !!od && !!gh && od.sha === gh.sha }; }));
 }
 async function pubDo(fn, doneMsg) {
   if (pubState.busy) return; pubState.busy = true; pubState.msg = ''; pubRender();
   try { await fn(); pubState.msg = doneMsg || ''; pubState.err = ''; } catch (e) { pubState.err = describe(e); }
   pubState.busy = false; try { await pubCheck(); } catch (e) { pubState.err = pubState.err || describe(e); } pubRender();
 }
+const pubPending = (kind) => (pubState.files || []).filter(x => !x.same && (kind === 'push' ? x.od : x.gh));
 async function pubPush() {
-  await pubCheck();
-  if (pubState.od.sha === pubState.gh.sha) { pubState.note = 'Already the same on GitHub, nothing to push.'; return; }
-  await ghCall('PUT', { message: 'Update index.html from Overview page ' + new Date().toISOString(), content: b64(pubState.od.buf), sha: pubState.gh.sha, branch: PUB.branch });
+  await pubCheck(); const todo = pubPending('push');
+  if (!todo.length) { pubState.note = 'Nothing to push, GitHub already matches.'; return; }
+  for (const x of todo) await ghCall('PUT', x.f, { message: 'Update ' + x.f + ' from Overview page ' + new Date().toISOString(), content: b64(x.od.buf), ...(x.gh ? { sha: x.gh.sha } : {}), branch: PUB.branch });
 }
 async function pubPull() {
-  await pubCheck();
-  if (pubState.od.sha === pubState.gh.sha) { pubState.note = 'Already the same, nothing to pull.'; return; }
+  await pubCheck(); const todo = pubPending('pull');
+  if (!todo.length) { pubState.note = 'Nothing to pull.'; return; }
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*$/, '').replace('T', '-');
-  const bk = PUB.od.replace(/[^/]+$/, 'backups/index.html.bak.') + stamp;
   const put = (path, buf) => g('/me/drive/root:' + enc(path) + ':/content?@microsoft.graph.conflictBehavior=replace', { method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' }, body: buf });
-  await put(bk, pubState.od.buf);                       // keep the OneDrive version first
-  await put(PUB.od, unb64(pubState.gh.content));
+  for (const x of todo) {
+    if (x.od) await put(PUB.dir + 'backups/' + x.f + '.bak.' + stamp, x.od.buf);   // keep the OneDrive version first
+    await put(PUB.dir + x.f, unb64(x.gh.content));
+  }
 }
 function pubRender() {
   const el = $('pub'); el.hidden = !pubOpen; $('out').hidden = pubOpen; if (!pubOpen) return;
   const s = pubState, has = !!ghTok(); let status = '';
-  if (has && s.od && s.gh) { const same = s.od.sha === s.gh.sha; status = same ? `<span class="st same">✓ Same on OneDrive and GitHub</span>` : `<span class="st diff">● Different</span>`;
-    status += `<p>OneDrive: ${s.od.size.toLocaleString()} bytes, changed ${lastTxt(Date.parse(s.od.mtime))}<br>GitHub: ${s.gh.size.toLocaleString()} bytes</p>`; }
-  el.innerHTML = `<h3>Publish to GitHub</h3><p>Pushes <code class="k">index.html</code> from OneDrive to <code class="k">${esc(PUB.repo)}</code> (${esc(PUB.branch)}). The live page updates about a minute later.</p>
+  if (has && s.files) status = s.files.map(x => {
+    const st = x.same ? `<span class="st same">✓ Same</span>` : !x.od ? `<span class="st diff">● Not on OneDrive</span>` : !x.gh ? `<span class="st diff">● New (not on GitHub yet)</span>` : `<span class="st diff">● Different</span>`;
+    return `<p><b>${esc(x.f)}</b> ${st}<br>OneDrive: ${x.od ? x.od.size.toLocaleString() + ' bytes, changed ' + lastTxt(Date.parse(x.od.mtime)) : 'missing'}<br>GitHub: ${x.gh ? x.gh.size.toLocaleString() + ' bytes' : 'missing'}</p>`; }).join('');
+  const canPush = !s.busy && pubPending('push').length, canPull = !s.busy && pubPending('pull').length;
+  el.innerHTML = `<h3>Publish to GitHub</h3><p>Pushes ${PUB.files.map(f => `<code class="k">${esc(f)}</code>`).join(' and ')} from OneDrive to <code class="k">${esc(PUB.repo)}</code> (${esc(PUB.branch)}). The live page updates about a minute later.</p>
   ${has ? '' : `<p><b>Paste your GitHub token</b> (the one limited to ${esc(PUB.repo)}, with Contents read and write). It is saved only in this browser on this device.</p><input type="password" id="ghtok" placeholder="github_pat_..." autocomplete="off" spellcheck="false"><button class="btn" id="pub-save">Save token</button>`}
   ${has ? status : ''}${s.busy ? '<p>Working...</p>' : ''}${s.msg ? `<p class="st same">${esc(s.msg)}</p>` : ''}${s.note ? `<p>${esc(s.note)}</p>` : ''}${s.err ? `<div class="err">${esc(s.err)}</div>` : ''}
-  ${has ? `<div><button class="btn" id="pub-check" ${s.busy ? 'disabled' : ''}>Check</button><button class="btn" id="pub-push" ${s.busy || !s.od || s.od.sha === s.gh.sha ? 'disabled' : ''}>Push to GitHub</button><button class="btn alt" id="pub-pull" ${s.busy || !s.od || s.od.sha === s.gh.sha ? 'disabled' : ''}>Pull from GitHub</button><button class="btn alt" id="pub-forget">Forget token</button></div>` : ''}
+  ${has ? `<div><button class="btn" id="pub-check" ${s.busy ? 'disabled' : ''}>Check</button><button class="btn" id="pub-push" ${canPush ? '' : 'disabled'}>Push to GitHub</button><button class="btn alt" id="pub-pull" ${canPull ? '' : 'disabled'}>Pull from GitHub</button><button class="btn alt" id="pub-forget">Forget token</button></div>` : ''}
   <p style="margin-top:10px">The token lives in this browser's storage for this site address, like the Microsoft sign-in does. Use "Forget token" on a shared device.</p>`;
 }
 document.addEventListener('click', async e => {
   if (e.target.closest('#btn-publish')) { pubOpen = !pubOpen; pubState.msg = pubState.err = pubState.note = ''; pubRender(); if (pubOpen && ghTok()) pubDo(async () => {}); return; }
   if (!e.target.closest('#pub')) return;
   if (e.target.closest('#pub-save')) { const v = ($('ghtok').value || '').trim(); if (v) { LS.set('co.ghToken', v); pubDo(async () => {}); } return; }
-  if (e.target.closest('#pub-forget')) { LS.del('co.ghToken'); pubState = { msg: 'Token removed from this browser.', busy: false, od: null, gh: null, note: '' }; pubRender(); return; }
+  if (e.target.closest('#pub-forget')) { LS.del('co.ghToken'); pubState = { msg: 'Token removed from this browser.', busy: false, files: null, note: '' }; pubRender(); return; }
   if (e.target.closest('#pub-check')) { pubState.note = ''; pubDo(async () => {}); return; }
   if (e.target.closest('#pub-push')) { pubState.note = ''; pubDo(pubPush, 'Pushed. The live page updates in about a minute.'); return; }
-  if (e.target.closest('#pub-pull')) { pubState.note = ''; if (confirm('Replace the OneDrive index.html with the GitHub version? The OneDrive copy is saved to the backups folder first.')) pubDo(pubPull, 'Pulled from GitHub. The old OneDrive copy is in the backups folder.'); return; }
+  if (e.target.closest('#pub-pull')) { pubState.note = ''; if (confirm('Replace the differing OneDrive file(s) with the GitHub version? The OneDrive copy is saved to the backups folder first.')) pubDo(pubPull, 'Pulled from GitHub. The old OneDrive copy is in the backups folder.'); return; }
 });
 
 /* ---------- start ---------- */
