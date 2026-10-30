@@ -27,6 +27,8 @@ button.tog.on{background:#26344d;border-color:#6ea8ff}
 #stats{color:#8a93a6;font-size:12px;margin-left:auto}
 #ripple{position:absolute;width:26px;height:26px;margin:-13px 0 0 -13px;border:2px solid #6ea8ff;border-radius:50%;pointer-events:none;display:none}
 .small{font-size:12px;color:#8a93a6}
+body.hidebars #top,body.hidebars #tools,body.hidebars #keys,body.hidebars #setup{display:none!important}
+#bBars{position:absolute;right:8px;top:8px;z-index:6;opacity:.6;min-width:40px;border-radius:20px;background:#232a36cc}
 </style></head>
 <body>
 <div class="bar" id="top">
@@ -68,6 +70,7 @@ button.tog.on{background:#26344d;border-color:#6ea8ff}
 <div id="stage" tabindex="0">
   <video id="v" autoplay playsinline muted></video>
   <div id="ripple"></div>
+  <button id="bBars" title="Show/hide the toolbars">&#9776;</button>
   <div id="msg"></div>
 </div>
 <textarea id="hid" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
@@ -117,8 +120,11 @@ function buildHosts() {
 }
 async function openSock(n, g) {
   if (g !== gen) return;
-  const s = socks[n] || (socks[n] = { online: false, ws: null, room: null, hb: null });
+  const s = socks[n] || (socks[n] = { online: false, ws: null, room: null, hb: null, tok: 0 });
+  const tok = ++s.tok;
+  if (s.ws && s.ws.readyState < 2) { const o = s.ws; o.onclose = null; try { o.close(); } catch {} clearInterval(s.hb); }
   s.room = await RC.room(n);
+  if (tok !== s.tok || g !== gen) return;
   const ws = RC.connect(s.room);
   s.ws = ws;
   ws.onopen = () => { clearInterval(s.hb); s.hb = setInterval(() => { try { ws.send('ping'); } catch {} }, 20000); };
@@ -132,8 +138,9 @@ async function openSock(n, g) {
   ws.onopen = ((prev) => () => { prev(); dlog(`${n}: relay socket open`); })(ws.onopen);
   ws.onclose = () => {
     dlog(`${n}: relay socket closed`);
+    if (tok !== s.tok) return;
     clearInterval(s.hb); s.online = false; const b = $('#h-' + n); if (b) b.classList.remove('on');
-    if (cur && cur.name === n && g === gen) show('Lost contact with the relay.', true);
+    if (cur && cur.name === n && g === gen && !cur.ready) show('Lost contact with the relay.', true);   // a live session does not need the relay
     if (g === gen) setTimeout(() => openSock(n, g), 3000);
   };
   ws.onerror = () => {};
@@ -244,6 +251,10 @@ async function handleSignal(c, m) {
     c.pendIce = [];
   } else if (m.t === 'error') { show(m.msg, true); disconnect(true); }
 }
+let barsTouched = false;
+const coarse = matchMedia('(pointer:coarse)').matches;
+function setBars(hide) { document.body.classList.toggle('hidebars', hide); setTimeout(() => window.dispatchEvent(new Event('resize')), 50); }
+$('#bBars').onclick = () => { barsTouched = true; setBars(!document.body.classList.contains('hidebars')); };
 const CTRL = ['btnDisc', 'bBack', 'bFwd', 'bRel', 'url', 'bGo', 'bNew', 'bClose', 'bPaste', 'bMode', 'bKb', 'tabsel'];
 async function inputStatus() {
   const b = $('#bIn'); b.disabled = true; b.classList.remove('on');
@@ -261,6 +272,7 @@ $('#bIn').onclick = async () => {
 };
 function onConnected() {
   show('');
+  if (coarse && !barsTouched) setBars(true);   // phones: give the video the whole screen once connected; the menu button stays
   setTimeout(inputStatus, 800);
   CTRL.forEach((id) => { $('#' + id).disabled = false; });
   $('#stage').focus();
@@ -275,6 +287,7 @@ function disconnect(quiet) {
     try { c.ws.send(JSON.stringify({ t: 'bye' })); } catch {}
     try { c.dc.close(); } catch {} try { c.pc.close(); } catch {}
   }
+  if (!barsTouched) setBars(false);
   $('#v').srcObject = null; $('#stats').textContent = ''; try { zReset(); } catch {}
   $('#tabsel').innerHTML = '<option>Tabs</option>'; $('#bIn').disabled = true; $('#bIn').textContent = 'Input: ?';
   CTRL.forEach((id) => { $('#' + id).disabled = true; });
@@ -572,6 +585,10 @@ async function stats() {
 }
 
 window.addEventListener('pagehide', () => disconnect(true));   // tell the host we left (matters when embedded and closed)
+// Come back from sleep / background / network change: reopen any relay sockets that died, right away.
+function wake() { if (document.hidden || !cfg.key) return; for (const n of HOSTS) { const s = socks[n]; if (!s || !s.ws || s.ws.readyState > 1) { dlog(n + ': relay socket reopened'); openSock(n, gen); } } }
+document.addEventListener('visibilitychange', wake); window.addEventListener('online', wake); window.addEventListener('pageshow', wake);
+setInterval(wake, 5000);
 window.__rc = { connect, startAll, cfg };
 startAll();
 const q = new URLSearchParams(location.search).get('connect');
