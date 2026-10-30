@@ -44,8 +44,12 @@ h2 { font-size: 0.95em; color: var(--mute); margin: 18px 0 6px; display: flex; f
 .overview-table td { padding: 3px 6px; border-bottom: 1px solid var(--line2); font-size: 12px; vertical-align: middle; line-height: 1.25; overflow: hidden; }
 .overview-table tbody tr:last-child td { border-bottom: none; }
 .overview-table tbody tr:hover { background: var(--head); }
-.overview-table tr.row-failed { background: var(--rowfail); }
-.overview-table tr.row-no-recording { background: var(--rowwarn); }
+.overview-table tbody tr.row-stale { background-color: #ffdcdc; }
+.overview-table tbody tr.row-stale:hover { background-color: #ffc7c7; }
+.overview-table tbody tr.row-failed { background-color: var(--rowfail); }
+.overview-table tbody tr.row-failed:hover { background-color: #ffd3d8; }
+.overview-table tbody tr.row-no-recording { background-color: var(--rowwarn); }
+.overview-table tbody tr.row-no-recording:hover { background-color: #ffedb3; }
 .overview-table tr.row-disabled { opacity: .55; }
 .overview-table input[type=text], .overview-table input[type=number], .overview-table select { font: inherit; font-size: 12px; width: 100%; padding: 2px 4px; border: 1px solid transparent; border-radius: 3px; background: transparent; color: inherit; text-overflow: ellipsis; }
 .overview-table input[type=text]:hover, .overview-table input[type=number]:hover, .overview-table select:hover { border-color: #ced4da; background: #fff; }
@@ -228,7 +232,13 @@ const isBroken = p => p.en && p.steps && attentionRank(p) < 2;
 function sectionOf(p) { if (p.pending) return 'loading'; if (p.type === 'freeSpins') return 'freespins'; if (isInactive(p)) return 'inactive'; if (p.rule === 'manual') return 'manual'; if (p.rule === 'notSignedUp') return 'notsignedup'; return p.rule === '24hours' ? '24hours' : 'midnight'; }
 const stCls = p => !p.steps ? 'st-none' : p.st === 'Success' ? 'st-success' : /^(Failed|Needs Attention|Success \(Unverified\))/.test(p.st) ? 'st-fail' : 'st-proc';
 const stTxt = p => !p.steps ? '⚠ No Recording' : (p.st || 'No executions');
-const rowCls = p => (!p.steps ? 'row-no-recording' : attentionRank(p) === 0 && p.en ? 'row-failed' : '') + (p.en ? '' : ' row-disabled');
+// same row colors as the extension Overview: no recording = yellow, last status Failed = pink, enabled scheduled profile that has not run today = light red, disabled = faded
+const rowCls = p => {
+  let c = !p.steps ? 'row-no-recording' : (p.st === 'Failed' ? 'row-failed' : '');
+  if (!p.en && p.st !== 'Failed') c += ' row-disabled';
+  if (!p.pending && p.steps && p.en && p.rule !== 'manual' && p.rule !== 'notSignedUp' && typeof p.lastAt === 'number') { const t = new Date(); t.setHours(0, 0, 0, 0); if (p.lastAt < t.getTime()) c += ' row-stale'; }
+  return c;
+};
 const bal = (arr, d) => arr.length ? arr.map(([v, g]) => `<div>${fmt(v, d)} <span class="g ${gcls(g)}">${gain(g, d)}</span></div>`).join('') : '—';
 function nextTxt(p) {
   if (!p.en || !p.steps) return '—';
