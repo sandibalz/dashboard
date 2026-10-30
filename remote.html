@@ -44,6 +44,7 @@ body.hidebars #top,body.hidebars #tools,body.hidebars #keys,body.hidebars #setup
   <input id="keyIn" type="password" placeholder="Shared key (typed once per device)" autocomplete="off">
   <button id="keySave">Save key</button>
   <button id="keyMs" title="Reads the key from your OneDrive using the Microsoft sign-in you use on the Overview page. Nothing is saved on this device.">Get key from Microsoft sign-in</button>
+  <button id="keySignIn" title="Goes to the Overview page to sign in with Microsoft, then returns here.">Sign in with Microsoft</button>
   <button id="keyForget" title="Remove the key typed on this device. The Microsoft sign-in can still fetch it.">Forget saved key</button>
   <span id="keyNote" class="small" style="flex-basis:100%"></span>
   <input id="relayIn" placeholder="Relay URL" style="flex-basis:100%">
@@ -181,7 +182,7 @@ async function startAll() {
   for (const n of Object.keys(socks)) { try { socks[n].ws.onclose = null; socks[n].ws.close(); } catch {} clearInterval(socks[n].hb); delete socks[n]; }
   buildHosts();
   if (!cfg.key) await autoKey();
-  if (!cfg.key) { $('#setup').style.display = 'flex'; $('#keyNote').textContent = msErr; show('No key yet: tap Get key from Microsoft sign-in (gear), or type it once and Save.'); return; }
+  if (!cfg.key) { $('#setup').style.display = 'flex'; $('#keyNote').textContent = msErr; show('No key yet. Open the gear: Sign in with Microsoft (one tap), or type the key once.'); return; }
   $('#keyNote').textContent = cfg.fromMs ? 'Key loaded from your Microsoft sign-in (kept in memory only).' : '';
   show('');
   HOSTS.forEach((n) => openSock(n, gen));
@@ -402,6 +403,7 @@ $('#bSet').onclick = () => {
   const el = $('#setup'); const on = el.style.display === 'none' || !el.style.display;
   el.style.display = on ? 'flex' : 'none'; $('#relayIn').value = cfg.relay;
 };
+$('#keySignIn').onclick = () => { try { sessionStorage.setItem('co.next', location.pathname.replace(/[^/]*$/, '') + 'remote.html' + location.search); } catch {} location.href = location.pathname.replace(/[^/]*$/, '') + 'index.html'; };
 $('#keyMs').onclick = async () => { cfg.key = ''; cfg.fromMs = false; await startAll(); };
 $('#keyForget').onclick = () => { LS.set('rc.key', ''); cfg.key = ''; cfg.fromMs = false; $('#keyNote').textContent = 'Saved key removed from this device.'; startAll(); };
 $('#keySave').onclick = () => {
