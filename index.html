@@ -172,9 +172,12 @@ async function readText(path) {
 /* ---------- data ---------- */
 async function loadOwner(o) {
   try {
-    const r = await readText(cfg.root + '/Profiles/' + o + '/chrome-state.json');
-    const doc = JSON.parse(r.text);
-    state[o] = { doc, at: Date.now(), err: null };
+    // chrome-state.json = what the Chrome wrote to its folder (every ~5 min, then OneDrive sync); chrome-state-live.json = the same content a Chrome
+    // connected to OneDrive uploads straight through Graph within seconds. Use whichever is newer.
+    const [r, lv] = await Promise.all([readText(cfg.root + '/Profiles/' + o + '/chrome-state.json'), readText(cfg.root + '/Profiles/' + o + '/chrome-state-live.json').catch(() => null)]);
+    let doc = JSON.parse(r.text), live = false;
+    if (lv) { try { const d2 = JSON.parse(lv.text); if (Date.parse(d2.updatedAt) > Date.parse(doc.updatedAt || 0)) { doc = d2; live = true; } } catch (e) {} }
+    state[o] = { doc, at: Date.now(), err: null, live };
     LS.set('co.state.' + o, { doc, at: Date.now() });
   } catch (e) { state[o] = Object.assign(state[o] || {}, { err: describe(e) }); }
 }
@@ -373,7 +376,7 @@ async function boot() {
   if (acct) pca.setActiveAccount(acct); else { showSignIn(); return; }
   started = true; render();
   await refreshAll();
-  setInterval(() => { if (document.visibilityState === 'visible') refreshAll(); }, 60000);
+  setInterval(() => { if (document.visibilityState === 'visible') refreshAll(); }, 20000);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && Date.now() - lastRefresh > 30000) refreshAll(); });
 }
 boot();
