@@ -16,7 +16,7 @@ button.host.on .dot{background:#3ddc84}
 button.host.cur{border-color:#6ea8ff;background:#26344d}
 button.tog.on{background:#26344d;border-color:#6ea8ff}
 #url{flex:1;min-width:140px}
-#stage{position:relative;flex:1;min-height:0;background:#000;outline:none;display:flex;align-items:center;justify-content:center;touch-action:none;user-select:none;-webkit-user-select:none}
+#stage{overflow:hidden;position:relative;flex:1;min-height:0;background:#000;outline:none;display:flex;align-items:center;justify-content:center;touch-action:none;user-select:none;-webkit-user-select:none}
 #v{max-width:100%;max-height:100%;width:100%;height:100%;object-fit:contain;touch-action:none;-webkit-touch-callout:none}
 #msg{position:absolute;inset:0;display:none;align-items:center;justify-content:center;text-align:center;padding:24px;background:#000a;font-size:16px;pointer-events:none}
 #msg.err{color:#ff9a9a}
@@ -35,6 +35,7 @@ button.tog.on{background:#26344d;border-color:#6ea8ff}
   <button id="bSet" title="Key and relay">&#9881;</button>
   <button id="bFs" title="Full screen">&#9974;</button>
   <button id="bLog" title="Connection log">Log</button>
+  <button id="bZ" title="Pinch with two fingers to zoom this view. Tap to reset.">Zoom 1&times;</button>
   <span id="stats"></span>
 </div>
 <div id="setup">
@@ -274,7 +275,7 @@ function disconnect(quiet) {
     try { c.ws.send(JSON.stringify({ t: 'bye' })); } catch {}
     try { c.dc.close(); } catch {} try { c.pc.close(); } catch {}
   }
-  $('#v').srcObject = null; $('#stats').textContent = '';
+  $('#v').srcObject = null; $('#stats').textContent = ''; try { zReset(); } catch {}
   $('#tabsel').innerHTML = '<option>Tabs</option>'; $('#bIn').disabled = true; $('#bIn').textContent = 'Input: ?';
   CTRL.forEach((id) => { $('#' + id).disabled = true; });
   $('#keys').style.display = 'none';
@@ -390,6 +391,37 @@ const click = async (p, btn, cc) => {
 let touchMode = 'scroll';            // 'scroll' | 'drag'
 $('#bMode').onclick = () => { touchMode = touchMode === 'scroll' ? 'drag' : 'scroll'; $('#bMode').textContent = 'Touch: ' + (touchMode === 'scroll' ? 'Scroll' : 'Drag'); $('#bMode').classList.toggle('on', touchMode === 'drag'); };
 let moveE = null, raf = 0;
+// ---- viewer-side zoom (two-finger pinch/pan; zooms what you see, not the host screen) ----
+const Z = { s: 1, tx: 0, ty: 0 }, touches = new Map(), pin = { on: false };
+function zApply() {
+  const w = stage.clientWidth, h = stage.clientHeight;
+  Z.s = Math.min(6, Math.max(1, Z.s));
+  Z.tx = Math.min(0, Math.max(w * (1 - Z.s), Z.tx)); Z.ty = Math.min(0, Math.max(h * (1 - Z.s), Z.ty));
+  v.style.transformOrigin = '0 0';
+  v.style.transform = Z.s === 1 ? '' : `translate(${Z.tx}px,${Z.ty}px) scale(${Z.s})`;
+  $('#bZ').innerHTML = 'Zoom ' + (Math.round(Z.s * 10) / 10) + '&times;';
+}
+function zReset() { Z.s = 1; Z.tx = Z.ty = 0; zApply(); }
+$('#bZ').onclick = zReset;
+window.addEventListener('resize', zApply);
+stage.addEventListener('gesturestart', (e) => e.preventDefault());
+function pinchStart() {
+  clearTimeout(g.long); g.long = null;
+  if (g.dragging) { const p = uv(g.x, g.y); if (p) send({ t: 'in', k: 'mu', ...p, b: 0, bs: 0, cc: 1, mod: 0 }); g.dragging = false; }
+  g.id = null; g.moved = true;
+  const [a, b] = [...touches.values()], r = stage.getBoundingClientRect();
+  pin.on = true; pin.d0 = Math.hypot(a.x - b.x, a.y - b.y) || 1; pin.s0 = Z.s;
+  const mx = (a.x + b.x) / 2 - r.left, my = (a.y + b.y) / 2 - r.top;
+  pin.cx = (mx - Z.tx) / Z.s; pin.cy = (my - Z.ty) / Z.s;     // content point under the fingers
+}
+function pinchMove() {
+  const [a, b] = [...touches.values()], r = stage.getBoundingClientRect();
+  const d = Math.hypot(a.x - b.x, a.y - b.y) || 1, mx = (a.x + b.x) / 2 - r.left, my = (a.y + b.y) / 2 - r.top;
+  Z.s = pin.s0 * d / pin.d0;
+  zApply(); // clamps s first
+  Z.tx = mx - pin.cx * Z.s; Z.ty = my - pin.cy * Z.s;
+  zApply();
+}
 const g = { id: null, type: '', x0: 0, y0: 0, x: 0, y: 0, t0: 0, moved: false, long: null, dragging: false, lastTap: 0, lastTapX: 0, lastTapY: 0 };
 
 v.addEventListener('pointerdown', (e) => {
@@ -401,7 +433,9 @@ v.addEventListener('pointerdown', (e) => {
     send({ t: 'in', k: 'md', ...p, b: e.button, bs: e.buttons, cc: e.detail || 1, mod: mods(e) });
     e.preventDefault(); return;
   }
-  if (g.id !== null) return;           // single finger only
+  touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (touches.size === 2) { v.setPointerCapture(e.pointerId); pinchStart(); e.preventDefault(); return; }
+  if (touches.size > 2 || g.id !== null) return;   // one finger = click/scroll, two = zoom
   g.id = e.pointerId; g.type = 'touch'; g.x0 = g.x = e.clientX; g.y0 = g.y = e.clientY; g.t0 = Date.now(); g.moved = false; g.dragging = false;
   v.setPointerCapture(e.pointerId);
   clearTimeout(g.long);
@@ -423,6 +457,8 @@ v.addEventListener('pointermove', (e) => {
     });
     return;
   }
+  if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pin.on) { if (touches.size >= 2) pinchMove(); e.preventDefault(); return; }
   if (e.pointerId !== g.id) return;
   const dx = e.clientX - g.x, dy = e.clientY - g.y;
   if (!g.moved && Math.hypot(e.clientX - g.x0, e.clientY - g.y0) < 8) return;
@@ -448,6 +484,8 @@ function endTouch(e, cancelled) {
     send({ t: 'in', k: 'mu', ...p, b: e.button, bs: e.buttons, cc: e.detail || 1, mod: mods(e) });
     return;
   }
+  touches.delete(e.pointerId);
+  if (pin.on) { if (touches.size < 2) pin.on = false; return; }
   if (e.pointerId !== g.id) return;
   clearTimeout(g.long);
   const wasLong = g.long === 'done'; g.id = null; g.long = null;
