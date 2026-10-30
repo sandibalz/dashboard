@@ -120,9 +120,10 @@ code.k { background: var(--head); border: 1px solid var(--line); border-radius: 
 <body>
 <div class="top">
   <div class="owners" id="owners" role="tablist" aria-label="Owner"></div>
-  <div class="sum"><span id="sum" style="display:contents"></span><span class="tools"><span class="sub" id="refreshed"></span><button class="tbtn" id="btn-refresh" title="Reload from OneDrive">↻</button><button class="tbtn" id="btn-view">Table</button><button class="tbtn" id="btn-publish">Publish</button><button class="tbtn" id="btn-settings">Settings</button></span></div>
+  <div class="sum"><span id="sum" style="display:contents"></span><span class="tools"><span class="sub" id="refreshed"></span><button class="tbtn" id="btn-refresh" title="Reload from OneDrive">↻</button><button class="tbtn" id="btn-view">Table</button><button class="tbtn" id="btn-remote">Remote</button><button class="tbtn" id="btn-publish">Publish</button><button class="tbtn" id="btn-settings">Settings</button></span></div>
   <div id="notes"></div>
 </div>
+<div id="rem" hidden></div>
 <div id="pub" hidden></div>
 <div id="out"></div>
 <div id="toast" class="toast" hidden role="status"></div>
@@ -431,7 +432,7 @@ document.addEventListener('click', async e => {
     await sendAction(cur, p, act); return;
   }
   const ob = e.target.closest('[data-owner]');
-  if (ob) { cur = ob.dataset.owner; LS.set('co.owner', cur); try { history.replaceState(null, '', '#' + cur.toLowerCase()); } catch (_) {} render(); loadStatics(cur); window.scrollTo(0, 0); return; }
+  if (ob) { cur = ob.dataset.owner; LS.set('co.owner', cur); try { history.replaceState(null, '', '#' + cur.toLowerCase()); } catch (_) {} render(); loadStatics(cur); if (remOpen) remRender(); window.scrollTo(0, 0); return; }
   if (e.target.closest('#btn-settings')) { showSetup(); return; }
   if (e.target.closest('#btn-refresh')) { refreshAll(true); return; }
   const b = e.target.closest('[data-act="retry"]'); if (!b || b.disabled) return;
@@ -445,6 +446,14 @@ document.addEventListener('click', async e => {
 
 /* ---------- Publish: push index.html from OneDrive to GitHub (replaces opening the Script Sync extension) ---------- */
 const PUB = { repo: 'sandibalz/dashboard', branch: 'main', dir: '/Documents/collector-overview/', files: ['index.html', 'remote.html'] };
+/* ---------- Remote: the Remote-Chrome viewer (remote.html) inside this page ---------- */
+let remOpen = false;
+function remRender() {
+  const el = $('rem'); el.hidden = !remOpen; $('out').hidden = remOpen || pubOpen;
+  if (!remOpen) { el.innerHTML = ''; return; }
+  el.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 8px"><b>Remote: ${esc(cur)}</b><span class="sub">Pick a PC in the viewer to switch. It uses the key saved for the Remote page.</span><span style="flex:1"></span><button class="tbtn" id="rem-fs">Full screen</button><button class="tbtn" id="rem-tab">New tab</button><button class="tbtn" id="rem-close">Close</button></div>
+  <iframe id="rem-frame" src="remote.html?embed=1&connect=${encodeURIComponent(cur)}" allow="fullscreen; clipboard-read; clipboard-write" style="width:100%;height:calc(100vh - 150px);min-height:420px;border:1px solid #c9ced6;border-radius:10px;background:#000"></iframe>`;
+}
 let pubOpen = false, pubState = { msg: '', busy: false, files: null, note: '' };
 const ghTok = () => LS.get('co.ghToken', '');
 const b64 = buf => { let s = '', a = new Uint8Array(buf); for (let i = 0; i < a.length; i += 0x8000) s += String.fromCharCode.apply(null, a.subarray(i, i + 0x8000)); return btoa(s); };
@@ -494,7 +503,7 @@ async function pubPull() {
   }
 }
 function pubRender() {
-  const el = $('pub'); el.hidden = !pubOpen; $('out').hidden = pubOpen; if (!pubOpen) return;
+  const el = $('pub'); el.hidden = !pubOpen; $('out').hidden = pubOpen || remOpen; if (!pubOpen) return;
   const s = pubState, has = !!ghTok(); let status = '';
   if (has && s.files) status = s.files.map(x => {
     const st = x.same ? `<span class="st same">✓ Same</span>` : !x.od ? `<span class="st diff">● Not on OneDrive</span>` : !x.gh ? `<span class="st diff">● New (not on GitHub yet)</span>` : `<span class="st diff">● Different</span>`;
@@ -507,7 +516,11 @@ function pubRender() {
   <p style="margin-top:10px">The token lives in this browser's storage for this site address, like the Microsoft sign-in does. Use "Forget token" on a shared device.</p>`;
 }
 document.addEventListener('click', async e => {
-  if (e.target.closest('#btn-publish')) { pubOpen = !pubOpen; pubState.msg = pubState.err = pubState.note = ''; pubRender(); if (pubOpen && ghTok()) pubDo(async () => {}); return; }
+  if (e.target.closest('#btn-remote')) { remOpen = !remOpen; if (remOpen) pubOpen = false; pubRender(); remRender(); window.scrollTo(0, 0); return; }
+  if (e.target.closest('#rem-close')) { remOpen = false; remRender(); return; }
+  if (e.target.closest('#rem-tab')) { window.open('remote.html?connect=' + encodeURIComponent(cur), '_blank'); return; }
+  if (e.target.closest('#rem-fs')) { const f = $('rem-frame'); if (f && f.requestFullscreen) f.requestFullscreen().catch(() => {}); return; }
+  if (e.target.closest('#btn-publish')) { if (remOpen) { remOpen = false; remRender(); } pubOpen = !pubOpen; pubState.msg = pubState.err = pubState.note = ''; pubRender(); if (pubOpen && ghTok()) pubDo(async () => {}); return; }
   if (!e.target.closest('#pub')) return;
   if (e.target.closest('#pub-save')) { const v = ($('ghtok').value || '').trim(); if (v) { LS.set('co.ghToken', v); pubDo(async () => {}); } return; }
   if (e.target.closest('#pub-forget')) { LS.del('co.ghToken'); pubState = { msg: 'Token removed from this browser.', busy: false, files: null, note: '' }; pubRender(); return; }
@@ -543,5 +556,3 @@ boot();
 </script>
 </body>
 </html>
-
-<!-- rebuild 20261030-1358 -->
