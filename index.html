@@ -120,7 +120,7 @@ code.k { background: var(--head); border: 1px solid var(--line); border-radius: 
 <body>
 <div class="top">
   <div class="owners" id="owners" role="tablist" aria-label="Owner"></div>
-  <div class="sum"><span id="sum" style="display:contents"></span><span class="tools"><span class="sub" id="refreshed"></span><button class="tbtn" id="btn-refresh" title="Reload from OneDrive">↻</button><button class="tbtn" id="btn-publish">Publish</button><button class="tbtn" id="btn-settings">Settings</button></span></div>
+  <div class="sum"><span id="sum" style="display:contents"></span><span class="tools"><span class="sub" id="refreshed"></span><button class="tbtn" id="btn-refresh" title="Reload from OneDrive">↻</button><button class="tbtn" id="btn-view">Table</button><button class="tbtn" id="btn-publish">Publish</button><button class="tbtn" id="btn-settings">Settings</button></span></div>
   <div id="notes"></div>
 </div>
 <div id="pub" hidden></div>
@@ -345,6 +345,7 @@ function table(o, list) {
 /* ---------- views ---------- */
 function render() {
   if (!started) return;
+  { const vb = $('btn-view'); if (vb) vb.textContent = viewMode() === 'cards' ? 'Table' : 'Cards'; }
   const ownerRows = {}; OWNERS.forEach(o => ownerRows[o] = rowsOf(o));
   $('owners').innerHTML = OWNERS.map(o => {
     const s = state[o], d = s && s.doc, up = d && Date.parse(d.updatedAt), age = up ? Date.now() - up : null, stale = age != null && age > 20 * 60000;
@@ -420,6 +421,7 @@ document.addEventListener('change', e => {
 });
 document.addEventListener('click', async e => {
   const fb = e.target.closest('[data-filter]'); if (fb) { LS.set('co.filter', fb.dataset.filter); render(); return; }
+  if (e.target.closest('#btn-view')) { LS.set('co.view', viewMode() === 'cards' ? 'table' : 'cards'); render(); window.scrollTo(0, 0); return; }
   const vb = e.target.closest('[data-view]'); if (vb) { LS.set('co.view', vb.dataset.view); render(); window.scrollTo(0, 0); return; }
   const ab = e.target.closest('[data-act="markOk"],[data-act="alreadyRan"],[data-act="stop"]');
   if (ab) {
