@@ -91,15 +91,39 @@ tr:hover .setrow, .setrow:focus-within { display: flex; }
 .tbtn { border: 1px solid #ced4da; background: #fff; border-radius: 6px; font-size: 12px; padding: 3px 10px; cursor: pointer; color: var(--ink); }
 .err { background: #ffe8ea; border: 1px solid #f5b5bb; color: #8a1f27; border-radius: 6px; font-size: 12px; padding: 6px 10px; margin-top: 8px; line-height: 1.4; }
 .ic.confirm { background: var(--bad); width: auto; padding: 0 5px; }
+/* ---- phone cards ---- */
+.viewbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 10px 0 8px; }
+.chip { border: 1px solid #ced4da; background: #fff; border-radius: 16px; font: inherit; font-size: 13px; padding: 5px 12px; color: var(--ink); cursor: pointer; }
+.chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.chip i { font-style: normal; opacity: .75; margin-left: 4px; font-variant-numeric: tabular-nums; }
+.viewbar .tbtn { margin-left: auto; }
+.cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; }
+.card.row-failed { background: var(--rowfail); } .card.row-stale { background: #ffdcdc; } .card.row-no-recording { background: var(--rowwarn); } .card.row-disabled { opacity: .6; }
+.card .ch { display: flex; align-items: center; gap: 8px; }
+.card .cn { flex: 1 1 auto; min-width: 0; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card .cb { display: flex; gap: 5px; flex: none; }
+.card .cb .ic { width: 30px; height: 30px; line-height: 30px; font-size: 13px; border-radius: 6px; }
+.card .cb .ic.confirm { width: auto; padding: 0 8px; }
+.card input[type=checkbox] { width: 20px; height: 20px; flex: none; }
+.card .cs { font-size: 13px; margin-top: 5px; display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: baseline; }
+.card .cf { color: #c0392b; font-weight: 600; font-size: 12px; margin-top: 4px; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.card .cbal { display: flex; gap: 16px; font-size: 12px; margin-top: 5px; font-variant-numeric: tabular-nums; }
+#pub { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin: 12px 0; }
+#pub h3 { margin: 0 0 6px; font-size: 15px; } #pub p, #pub li { font-size: 13px; line-height: 1.45; color: var(--mute); margin: 4px 0; }
+#pub input[type=password], #pub input[type=text] { width: 100%; font: inherit; font-size: 14px; padding: 8px 10px; border: 1px solid #ced4da; border-radius: 6px; background: #fff; color: var(--ink); }
+#pub .btn { margin: 10px 8px 0 0; padding: 8px 14px; font-size: 14px; } #pub .btn[disabled] { opacity: .5; }
+#pub .st { font-weight: 700; } #pub .st.same { color: var(--good); } #pub .st.diff { color: var(--warn); } #pub .st.bad { color: var(--bad); }
 code.k { background: var(--head); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; font-size: 12px; }
 </style>
 </head>
 <body>
 <div class="top">
   <div class="owners" id="owners" role="tablist" aria-label="Owner"></div>
-  <div class="sum"><span id="sum" style="display:contents"></span><span class="tools"><span class="sub" id="refreshed"></span><button class="tbtn" id="btn-refresh" title="Reload from OneDrive">↻</button><button class="tbtn" id="btn-settings">Settings</button></span></div>
+  <div class="sum"><span id="sum" style="display:contents"></span><span class="tools"><span class="sub" id="refreshed"></span><button class="tbtn" id="btn-refresh" title="Reload from OneDrive">↻</button><button class="tbtn" id="btn-publish">Publish</button><button class="tbtn" id="btn-settings">Settings</button></span></div>
   <div id="notes"></div>
 </div>
+<div id="pub" hidden></div>
 <div id="out"></div>
 <div id="toast" class="toast" hidden role="status"></div>
 
@@ -263,6 +287,38 @@ function failNote(p) {
   return '';
 }
 function queuedNote(o, p) { const q = LS.get('co.q.' + o + '.' + p.id, 0); if (!q) return ''; if (Date.now() - q > 3 * 3600000 || (p.lastAt && p.lastAt > q)) { LS.del('co.q.' + o + '.' + p.id); return ''; } return '⏳ retry queued ' + dt(q, { hour: 'numeric', minute: '2-digit' }); }
+const isPhoneNow = () => window.matchMedia && matchMedia('(max-width: 700px)').matches;
+const viewMode = () => LS.get('co.view', null) || (isPhoneNow() ? 'cards' : 'table');
+const isRunning = p => /^(Running|Retrying)/.test(p.st);
+const isOverdue = p => p.en && p.steps && !p.pending && p.rule !== 'manual' && p.rule !== 'notSignedUp' && p.type !== 'freeSpins' && !isRunning(p) && typeof p.nextAt === 'number' && p.nextAt < Date.now() - 15 * 60000;
+const isProblem = p => isBroken(p) || isOverdue(p);
+function actBtns(o, p) {
+  const running = isRunning(p), retryOff = running || p.pending || !p.steps || p.rule === 'notSignedUp', conf = pendingConfirm[o + '|' + p.id];
+  const cf = a => pendingConfirm[o + '|' + p.id + '|' + a];
+  return `<button class="mini retry ic ${conf ? 'confirm' : ''}" data-act="retry" title="${conf ? 'Tap again to queue a run' : 'Queue a run on ' + o + "'s Chrome"}" ${retryOff ? 'disabled' : ''}>${running ? '⏳' : conf ? 'Run?' : 'R'}</button>` +
+    (running ? `<button class="mini ic ${cf('stop') ? 'confirm' : ''}" style="background:var(--bad)" data-act="stop" title="Stop this run">${cf('stop') ? 'Stop?' : '■'}</button>` : '') +
+    (isBroken(p) ? `<button class="mini okb ic ${cf('markOk') ? 'confirm' : ''}" data-act="markOk" title="Mark OK: claim was fine, cancel the soft-fail retry and reschedule from the last run">${cf('markOk') ? 'OK?' : 'O'}</button>` : '') +
+    ((!running && p.steps && p.rule !== 'manual' && p.rule !== 'notSignedUp') ? `<button class="mini ic ${cf('alreadyRan') ? 'confirm' : ''}" style="background:#1e90ff" data-act="alreadyRan" title="Already ran: push the next run out one interval from now">${cf('alreadyRan') ? 'Ran?' : 'A'}</button>` : '');
+}
+function card(o, p) {
+  const fn = failNote(p), qn = queuedNote(o, p);
+  const b1 = (arr, d) => arr.length ? `${fmt(arr[0][0], d)} <span class="g ${gcls(arr[0][1])}">${gain(arr[0][1], d)}</span>` : '—';
+  return `<div class="card ${rowCls(p)}" data-id="${esc(p.id)}">
+  <div class="ch"><input type="checkbox" data-act="toggle" ${p.en ? 'checked' : ''} aria-label="On"><b class="cn">${esc(p.n)}</b><span class="cb">${actBtns(o, p)}</span></div>
+  <div class="cs"><span class="${stCls(p)}">${esc(stTxt(p))}</span><span class="sub">${esc(qn || lastTxt(p.lastAt))}</span><span class="sub">next: ${esc(nextTxt(p))}</span></div>
+  ${fn ? `<div class="cf">⚠ ${esc(fn)}</div>` : ''}
+  <div class="cbal"><span>GC ${b1(p.gc, 0)}</span><span>SC ${b1(p.sc, 2)}</span></div></div>`;
+}
+function cardsView(o, rows) {
+  const f = LS.get('co.filter', 'problems');
+  const act = rows.filter(p => p.en && p.steps);
+  const sets = { problems: act.filter(isProblem), running: rows.filter(isRunning), all: rows.filter(p => p.steps) };
+  const chip = (k, t) => `<button class="chip ${f === k ? 'on' : ''}" data-filter="${k}">${t}<i>${sets[k].length}</i></button>`;
+  const list = sets[sets[f] ? f : 'problems'].slice().sort((a, b) => (attentionRank(a) - attentionRank(b)) || (isOverdue(b) - isOverdue(a)) || a.n.localeCompare(b.n, undefined, { sensitivity: 'base' }));
+  const empty = f === 'problems' ? `✅ Nothing needs attention on ${o}'s Chrome.` : f === 'running' ? `Nothing is running on ${o}'s Chrome right now.` : 'No profiles.';
+  return `<div class="viewbar">${chip('problems', 'Problems')}${chip('running', 'Running')}${chip('all', 'All')}<button class="tbtn" data-view="table">Table view</button></div>` +
+    (list.length ? `<div class="cards">${list.map(p => card(o, p)).join('')}</div>` : `<div class="empty">${empty}</div>`);
+}
 function row(o, p) {
   const running = /^(Running|Retrying)/.test(p.st);
   const retryOff = running || p.pending || !p.steps || p.rule === 'notSignedUp';
@@ -272,7 +328,7 @@ function row(o, p) {
   const fn = failNote(p);
   return `<tr class="${rowCls(p)}" data-id="${esc(p.id)}">
   <td><div class="c1"><button class="open" disabled style="opacity:.45" title="Open detail: only in the extension for now">📂</button><input type="checkbox" data-act="toggle" ${p.en ? 'checked' : ''} title="On/off: applies on ${o}'s Chrome within about 30 s" aria-label="On"></div></td>
-  <td><div style="display:flex;align-items:center;gap:3px"><input type="text" class="nm" value="${esc(p.n)}" readonly style="flex:1 1 auto;min-width:0"><button class="mini retry ic ${conf ? 'confirm' : ''}" data-act="retry" title="${conf ? 'Tap again to queue a run' : 'Queue a run on ' + o + "'s Chrome"}" ${retryOff ? 'disabled' : ''}>${running ? '⏳' : conf ? 'Run?' : 'R'}</button>${running ? `<button class="mini ic ${pendingConfirm[o + '|' + p.id + '|stop'] ? 'confirm' : ''}" style="background:var(--bad)" data-act="stop" title="Stop this run">${pendingConfirm[o + '|' + p.id + '|stop'] ? 'Stop?' : '■'}</button>` : ''}${isBroken(p) ? `<button class="mini okb ic ${pendingConfirm[o + '|' + p.id + '|markOk'] ? 'confirm' : ''}" data-act="markOk" title="Mark OK: claim was fine, cancel the soft-fail retry and reschedule from the last run">${pendingConfirm[o + '|' + p.id + '|markOk'] ? 'OK?' : 'O'}</button>` : ''}${(!running && p.steps && p.rule !== 'manual' && p.rule !== 'notSignedUp') ? `<button class="mini ic ${pendingConfirm[o + '|' + p.id + '|alreadyRan'] ? 'confirm' : ''}" style="background:#1e90ff" data-act="alreadyRan" title="Already ran: push the next run out one interval from now">${pendingConfirm[o + '|' + p.id + '|alreadyRan'] ? 'Ran?' : 'A'}</button>` : ''}</div></td>
+  <td><div style="display:flex;align-items:center;gap:3px"><input type="text" class="nm" value="${esc(p.n)}" readonly style="flex:1 1 auto;min-width:0">${actBtns(o, p)}</div></td>
   <td><div style="display:flex;align-items:center;gap:3px"><span class="pill" title="Login: ${p.auth === 'google' ? 'Google' : 'Credentials'}">${p.auth === 'google' ? 'G' : 'C'}</span><span class="sub trunc" title="${esc(p.host)}">${esc(p.host)}</span></div></td>
   <td><div style="display:flex;gap:2px"><select style="flex:1;min-width:0" disabled aria-label="Schedule"><option>${p.rule === 'midnight' ? 'Daily' : p.rule === 'manual' ? 'Manual' : 'Interval'}</option></select><input type="number" value="${p.rule === 'midnight' ? p.ord : p.hrs}" disabled style="width:44px;flex:none" aria-label="Order or hours"></div></td>
   <td style="color:var(--soft);white-space:nowrap" title="${esc(nextTxt(p))}"><span class="trunc">${esc(nextTxt(p))}</span></td>
@@ -305,13 +361,14 @@ function render() {
   if (d) { const up = Date.parse(d.updatedAt), age = Date.now() - up; if (age > 20 * 60000) notes += `<div class="stale-note"><b>${o}'s Chrome last reported ${span(age)} ago</b> (${lastTxt(up)}). Everything below is from then. Their PC or Chrome may be off, and anything you queue waits until it is back.</div>`; }
   $('notes').innerHTML = notes;
   if (!d) { $('out').innerHTML = `<div class="empty">${loading ? 'Loading from OneDrive…' : 'No data for ' + o + ' yet.'}</div>`; return; }
+  if (viewMode() === 'cards') { $('out').innerHTML = cardsView(o, rows); return; }
   const by = {}; SECTIONS.forEach(x => by[x[0]] = []); rows.forEach(p => by[sectionOf(p)].push(p));
   const cmpName = (a, b) => a.n.localeCompare(b.n, undefined, { sensitivity: 'base' });
   $('out').innerHTML = SECTIONS.map(([k, title]) => {
     const list = by[k].slice().sort(k === 'inactive' || k === 'freespins' ? (a, b) => (groupRank(a) - groupRank(b)) || cmpName(a, b) : (a, b) => (attentionRank(a) - attentionRank(b)) || (groupRank(a) - groupRank(b)) || cmpName(a, b));
     if (!list.length) return '';
     return `<h2>${title}<span class="sub">${list.length}</span></h2>${table(o, list)}`;
-  }).join('');
+  }).join('') + (isPhoneNow() ? '<div class="viewbar"><button class="tbtn" data-view="cards">Card view</button></div>' : '');
 }
 function showSetup(msg) {
   started = false;
@@ -357,14 +414,16 @@ async function sendAction(o, p, action) {
 }
 document.addEventListener('change', e => {
   const cb = e.target.closest('input[data-act="toggle"]'); if (!cb) return;
-  const tr = cb.closest('tr'), p = rowsOf(cur).find(x => x.id === tr.dataset.id); if (!p) return;
+  const tr = cb.closest('[data-id]'), p = rowsOf(cur).find(x => x.id === tr.dataset.id); if (!p) return;
   const want = cb.checked; cb.checked = !want;   // the real state comes back from the Chrome
   if (confirm((want ? 'Turn ON ' : 'Turn OFF ') + p.n + ' on ' + cur + "'s Chrome?")) sendAction(cur, p, want ? 'enable' : 'disable');
 });
 document.addEventListener('click', async e => {
+  const fb = e.target.closest('[data-filter]'); if (fb) { LS.set('co.filter', fb.dataset.filter); render(); return; }
+  const vb = e.target.closest('[data-view]'); if (vb) { LS.set('co.view', vb.dataset.view); render(); window.scrollTo(0, 0); return; }
   const ab = e.target.closest('[data-act="markOk"],[data-act="alreadyRan"],[data-act="stop"]');
   if (ab) {
-    const tr = ab.closest('tr'), id = tr.dataset.id, act = ab.dataset.act, key = cur + '|' + id + '|' + act, p = rowsOf(cur).find(x => x.id === id); if (!p) return;
+    const tr = ab.closest('[data-id]'), id = tr.dataset.id, act = ab.dataset.act, key = cur + '|' + id + '|' + act, p = rowsOf(cur).find(x => x.id === id); if (!p) return;
     if (!pendingConfirm[key]) { pendingConfirm[key] = setTimeout(() => { delete pendingConfirm[key]; render(); }, 4000); render(); return; }
     clearTimeout(pendingConfirm[key]); delete pendingConfirm[key];
     await sendAction(cur, p, act); return;
@@ -374,12 +433,78 @@ document.addEventListener('click', async e => {
   if (e.target.closest('#btn-settings')) { showSetup(); return; }
   if (e.target.closest('#btn-refresh')) { refreshAll(true); return; }
   const b = e.target.closest('[data-act="retry"]'); if (!b || b.disabled) return;
-  const tr = b.closest('tr'), id = tr.dataset.id, key = cur + '|' + id, p = rowsOf(cur).find(x => x.id === id); if (!p) return;
+  const tr = b.closest('[data-id]'), id = tr.dataset.id, key = cur + '|' + id, p = rowsOf(cur).find(x => x.id === id); if (!p) return;
   if (!pendingConfirm[key]) { pendingConfirm[key] = setTimeout(() => { delete pendingConfirm[key]; render(); }, 4000); render(); return; }
   clearTimeout(pendingConfirm[key]); delete pendingConfirm[key];
   try { await queueRetry(cur, p); toast(`<b>Queued a run for ${esc(p.n)}</b> on ${cur}'s Chrome. It starts within about a minute after OneDrive syncs to that PC.`); }
   catch (err) { toast('<b>Could not queue it.</b> ' + esc(describe(err)), 9000); }
   render();
+});
+
+/* ---------- Publish: push index.html from OneDrive to GitHub (replaces opening the Script Sync extension) ---------- */
+const PUB = { repo: 'sandibalz/dashboard', branch: 'main', path: 'index.html', od: '/Documents/collector-overview/index.html' };
+let pubOpen = false, pubState = { msg: '', busy: false, od: null, gh: null, note: '' };
+const ghTok = () => LS.get('co.ghToken', '');
+const b64 = buf => { let s = '', a = new Uint8Array(buf); for (let i = 0; i < a.length; i += 0x8000) s += String.fromCharCode.apply(null, a.subarray(i, i + 0x8000)); return btoa(s); };
+const unb64 = s => { const bin = atob(s.replace(/\s/g, '')), a = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i); return a.buffer; };
+async function gitSha(buf) { const h = new TextEncoder().encode('blob ' + buf.byteLength + '\0'), all = new Uint8Array(h.length + buf.byteLength); all.set(h, 0); all.set(new Uint8Array(buf), h.length); return [...new Uint8Array(await crypto.subtle.digest('SHA-1', all))].map(x => x.toString(16).padStart(2, '0')).join(''); }
+async function odBytes() {
+  const m = await (await g('/me/drive/root:' + enc(PUB.od) + '?select=id,size,lastModifiedDateTime,@microsoft.graph.downloadUrl')).json();
+  const u = m['@microsoft.graph.downloadUrl']; const r = u ? await fetch(u) : await g('/me/drive/root:' + enc(PUB.od) + ':/content');
+  if (!r.ok) throw new Error('OneDrive download ' + r.status);
+  const buf = await r.arrayBuffer(); return { buf, size: buf.byteLength, mtime: m.lastModifiedDateTime, sha: await gitSha(buf) };
+}
+async function ghCall(method, body) {
+  const r = await fetch('https://api.github.com/repos/' + PUB.repo + '/contents/' + PUB.path + (method === 'GET' ? '?ref=' + PUB.branch : ''), { method, headers: { Authorization: 'Bearer ' + ghTok(), Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' }, body: body ? JSON.stringify(body) : undefined });
+  if (r.status === 401) throw new Error('GitHub refused the token (401). It may have expired: paste a new one.');
+  if (r.status === 403 || r.status === 404) throw new Error('GitHub says ' + r.status + '. The token needs Contents read and write on ' + PUB.repo + '.');
+  if (r.status === 409 || r.status === 422) throw new Error('GitHub says the file changed since you checked (' + r.status + '). Tap Check again.');
+  if (!r.ok) throw new Error('GitHub error ' + r.status);
+  return r.json();
+}
+async function pubCheck() {
+  if (!ghTok()) { pubState.od = pubState.gh = null; return; }
+  const [od, gh] = await Promise.all([odBytes(), ghCall('GET')]);
+  pubState.od = { size: od.size, mtime: od.mtime, sha: od.sha, buf: od.buf }; pubState.gh = { size: gh.size, sha: gh.sha, content: gh.content };
+}
+async function pubDo(fn, doneMsg) {
+  if (pubState.busy) return; pubState.busy = true; pubState.msg = ''; pubRender();
+  try { await fn(); pubState.msg = doneMsg || ''; pubState.err = ''; } catch (e) { pubState.err = describe(e); }
+  pubState.busy = false; try { await pubCheck(); } catch (e) { pubState.err = pubState.err || describe(e); } pubRender();
+}
+async function pubPush() {
+  await pubCheck();
+  if (pubState.od.sha === pubState.gh.sha) { pubState.note = 'Already the same on GitHub, nothing to push.'; return; }
+  await ghCall('PUT', { message: 'Update index.html from Overview page ' + new Date().toISOString(), content: b64(pubState.od.buf), sha: pubState.gh.sha, branch: PUB.branch });
+}
+async function pubPull() {
+  await pubCheck();
+  if (pubState.od.sha === pubState.gh.sha) { pubState.note = 'Already the same, nothing to pull.'; return; }
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*$/, '').replace('T', '-');
+  const bk = PUB.od.replace(/[^/]+$/, 'backups/index.html.bak.') + stamp;
+  const put = (path, buf) => g('/me/drive/root:' + enc(path) + ':/content?@microsoft.graph.conflictBehavior=replace', { method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' }, body: buf });
+  await put(bk, pubState.od.buf);                       // keep the OneDrive version first
+  await put(PUB.od, unb64(pubState.gh.content));
+}
+function pubRender() {
+  const el = $('pub'); el.hidden = !pubOpen; $('out').hidden = pubOpen; if (!pubOpen) return;
+  const s = pubState, has = !!ghTok(); let status = '';
+  if (has && s.od && s.gh) { const same = s.od.sha === s.gh.sha; status = same ? `<span class="st same">✓ Same on OneDrive and GitHub</span>` : `<span class="st diff">● Different</span>`;
+    status += `<p>OneDrive: ${s.od.size.toLocaleString()} bytes, changed ${lastTxt(Date.parse(s.od.mtime))}<br>GitHub: ${s.gh.size.toLocaleString()} bytes</p>`; }
+  el.innerHTML = `<h3>Publish to GitHub</h3><p>Pushes <code class="k">index.html</code> from OneDrive to <code class="k">${esc(PUB.repo)}</code> (${esc(PUB.branch)}). The live page updates about a minute later.</p>
+  ${has ? '' : `<p><b>Paste your GitHub token</b> (the one limited to ${esc(PUB.repo)}, with Contents read and write). It is saved only in this browser on this device.</p><input type="password" id="ghtok" placeholder="github_pat_..." autocomplete="off" spellcheck="false"><button class="btn" id="pub-save">Save token</button>`}
+  ${has ? status : ''}${s.busy ? '<p>Working...</p>' : ''}${s.msg ? `<p class="st same">${esc(s.msg)}</p>` : ''}${s.note ? `<p>${esc(s.note)}</p>` : ''}${s.err ? `<div class="err">${esc(s.err)}</div>` : ''}
+  ${has ? `<div><button class="btn" id="pub-check" ${s.busy ? 'disabled' : ''}>Check</button><button class="btn" id="pub-push" ${s.busy || !s.od || s.od.sha === s.gh.sha ? 'disabled' : ''}>Push to GitHub</button><button class="btn alt" id="pub-pull" ${s.busy || !s.od || s.od.sha === s.gh.sha ? 'disabled' : ''}>Pull from GitHub</button><button class="btn alt" id="pub-forget">Forget token</button></div>` : ''}
+  <p style="margin-top:10px">The token lives in this browser's storage for this site address, like the Microsoft sign-in does. Use "Forget token" on a shared device.</p>`;
+}
+document.addEventListener('click', async e => {
+  if (e.target.closest('#btn-publish')) { pubOpen = !pubOpen; pubState.msg = pubState.err = pubState.note = ''; pubRender(); if (pubOpen && ghTok()) pubDo(async () => {}); return; }
+  if (!e.target.closest('#pub')) return;
+  if (e.target.closest('#pub-save')) { const v = ($('ghtok').value || '').trim(); if (v) { LS.set('co.ghToken', v); pubDo(async () => {}); } return; }
+  if (e.target.closest('#pub-forget')) { LS.del('co.ghToken'); pubState = { msg: 'Token removed from this browser.', busy: false, od: null, gh: null, note: '' }; pubRender(); return; }
+  if (e.target.closest('#pub-check')) { pubState.note = ''; pubDo(async () => {}); return; }
+  if (e.target.closest('#pub-push')) { pubState.note = ''; pubDo(pubPush, 'Pushed. The live page updates in about a minute.'); return; }
+  if (e.target.closest('#pub-pull')) { pubState.note = ''; if (confirm('Replace the OneDrive index.html with the GitHub version? The OneDrive copy is saved to the backups folder first.')) pubDo(pubPull, 'Pulled from GitHub. The old OneDrive copy is in the backups folder.'); return; }
 });
 
 /* ---------- start ---------- */
@@ -404,6 +529,7 @@ async function boot() {
   setInterval(() => { if (document.visibilityState === 'visible') refreshAll(); }, 20000);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && Date.now() - lastRefresh > 30000) refreshAll(); });
 }
+try { matchMedia('(max-width: 700px)').addEventListener('change', () => { if (!LS.get('co.view', null)) render(); }); } catch (e) {}
 boot();
 </script>
 </body>
