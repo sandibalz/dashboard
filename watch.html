@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Watch</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#0d1117;color:#e6edf3;font:14px system-ui,Segoe UI,sans-serif}
+.bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:6px 8px;background:#161b22;border-bottom:1px solid #30363d}
+button,select,input{background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:5px 9px;font:inherit}
+button{cursor:pointer}button:hover{background:#30363d}
+.chip.on{background:#1f6feb;border-color:#1f6feb}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#6e7681;margin-right:5px}
+.chip.up .dot{background:#3fb950}
+#setup{display:none;flex-wrap:wrap;gap:6px;padding:6px 8px;background:#161b22;border-bottom:1px solid #30363d}
+#note{padding:6px 10px;color:#8b949e;font-size:12px}
+#grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:8px;padding:8px}
+.tile{position:relative;background:#000;border:1px solid #30363d;border-radius:8px;overflow:hidden;cursor:pointer}
+.tile:hover{border-color:#1f6feb}
+.tile video{display:block;width:100%;aspect-ratio:16/9;object-fit:contain;background:#000}
+.tile .hd{position:absolute;left:0;right:0;top:0;display:flex;justify-content:space-between;gap:8px;padding:4px 8px;background:linear-gradient(#000c,#0000);font-size:12px;pointer-events:none}
+.tile .st{color:#9fe;text-align:right}
+.tile .hint{position:absolute;right:8px;bottom:6px;font-size:11px;color:#8b949e;pointer-events:none}
+#ov{position:fixed;inset:0;background:#0d1117;display:none;flex-direction:column;z-index:20}
+#ov iframe{flex:1;border:0;width:100%}
+#dbg{display:none;position:fixed;left:6px;right:6px;bottom:6px;max-height:45vh;overflow:auto;margin:0;padding:8px;background:#000d;color:#9fe;font:11px/1.35 ui-monospace,monospace;white-space:pre-wrap;z-index:30;border:1px solid #345;border-radius:8px}
+body.embed .bar b{display:none}
+</style></head><body>
+<div class="bar" id="top">
+  <b>Watch</b><span id="chips" style="display:contents"></span>
+  <select id="qual" title="Picture quality of the small tiles. Lower = less load on the watched PCs."><option value="low">Low (300 kbps, 5 fps)</option><option value="mid">Medium (800 kbps, 10 fps)</option><option value="high">High (2 Mbps, 15 fps)</option></select>
+  <button id="bRe" title="Reconnect all tiles">Reconnect</button>
+  <button id="bSet" title="Key">&#9881;</button>
+  <button id="bLog">Log</button>
+</div>
+<div id="setup">
+  <input id="keyIn" type="password" placeholder="Shared key (typed once per device)" autocomplete="off">
+  <button id="keySave">Save key</button>
+  <button id="keyMs" title="Reads the key from OneDrive using the Microsoft sign-in from the Overview page.">Get key from Microsoft sign-in</button>
+  <button id="keyForget">Forget saved key</button>
+  <span id="keyNote" style="flex-basis:100%;font-size:12px;color:#8b949e"></span>
+</div>
+<div id="note"></div>
+<div id="grid"></div>
+<div id="ov"><div class="bar"><button id="bBack">&#9664; Back to grid</button><span id="ovName"></span><span style="color:#8b949e;font-size:12px">Full control. The small tile for this PC pauses while it is open.</span></div></div>
+<pre id="dbg"></pre>
+<script>
+'use strict';
+const $ = (s) => document.querySelector(s);
+const DEF_RELAY = 'wss://remote-chrome-relay.ben5309.workers.dev';
+const ALL = ['Ben', 'Cindy', 'Tyler', 'Jessica'];
+const ICE = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' }];
+const QUAL = { low: { kbps: 300, fps: 5 }, mid: { kbps: 800, fps: 10 }, high: { kbps: 2000, fps: 15 } };
+const LS = {
+  get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+};
+const P = new URLSearchParams(location.search);
+if (P.get('embed')) document.body.classList.add('embed');
+const cfg = { relay: LS.get('rc.relay', DEF_RELAY), key: LS.get('rc.key', '') };
+
+// ---- crypto (same scheme as remote.html / the extension's lib.js) ----
+const enc = new TextEncoder();
+const hex = (b) => [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, '0')).join('');
+const unhex = (s) => new Uint8Array((s.match(/../g) || []).map((h) => parseInt(h, 16)));
+const RC = {
+  room: async (name) => hex(await crypto.subtle.digest('SHA-256', enc.encode('room:' + cfg.key + ':' + name.toLowerCase()))),
+  hk: (u) => crypto.subtle.importKey('raw', enc.encode(cfg.key), { name: 'HMAC', hash: 'SHA-256' }, false, u),
+  sign: async (t) => hex(await crypto.subtle.sign('HMAC', await RC.hk(['sign']), enc.encode(t))),
+  verify: async (t, sig) => { try { return await crypto.subtle.verify('HMAC', await RC.hk(['verify']), unhex(String(sig)), enc.encode(t)); } catch { return false; } },
+  connect: (room) => new WebSocket(`${cfg.relay}/ws?room=${room}&role=viewer`),
+};
+
+let gen = 0, qual = P.get('q') || LS.get('watch.q', 'low');
+if (!QUAL[qual]) qual = 'low';
+let want = (P.get('hosts') || LS.get('watch.hosts', 'Cindy,Tyler,Jessica')).split(',').filter((n) => ALL.includes(n));
+const socks = {}, tiles = {};
+const DLOG = []; const dT0 = Date.now();
+function dlog(t) { DLOG.push(((Date.now() - dT0) / 1000).toFixed(1).padStart(6) + 's ' + t); if (DLOG.length > 400) DLOG.shift(); const d = $('#dbg'); if (d.style.display === 'block') { d.textContent = DLOG.join('\n'); d.scrollTop = d.scrollHeight; } }
+$('#bLog').onclick = () => { const d = $('#dbg'); const on = d.style.display !== 'block'; d.style.display = on ? 'block' : 'none'; if (on) { d.textContent = DLOG.join('\n') || '(nothing yet)'; d.scrollTop = d.scrollHeight; } };
+const note = (t) => { $('#note').textContent = t || ''; };
+
+// ---- key from the Microsoft sign-in (kept in memory only), same as remote.html ----
+const MS_CFG = '/Documents/Remote-Chrome/extension/config.json';
+function loadScript(src) { return new Promise((res, rej) => { const el = document.createElement('script'); el.src = src; el.onload = res; el.onerror = () => rej(new Error('could not load the Microsoft sign-in library')); document.head.append(el); }); }
+async function msKey() {
+  if (!window.msal) await loadScript('https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js');
+  let cid = '1ee77fca-2582-4c3d-a13a-84f3ce009772'; try { const v = JSON.parse(localStorage.getItem('co.clientId')); if (v) cid = v; } catch {}
+  const pca = new msal.PublicClientApplication({ auth: { clientId: cid, authority: 'https://login.microsoftonline.com/consumers', redirectUri: location.origin + location.pathname.replace(/[^/]*$/, '') }, cache: { cacheLocation: 'localStorage' } });
+  if (pca.initialize) await pca.initialize();
+  const acct = pca.getActiveAccount() || pca.getAllAccounts()[0];
+  if (!acct) throw new Error('Not signed in on this browser. Open the Overview page, sign in there once, then come back.');
+  let tok; try { tok = (await pca.acquireTokenSilent({ scopes: ['Files.ReadWrite'], account: acct })).accessToken; }
+  catch (e) { throw new Error('Microsoft needs you to sign in again. Open the Overview page and sign in, then come back.'); }
+  const h = { Authorization: 'Bearer ' + tok }, p = 'https://graph.microsoft.com/v1.0/me/drive/root:' + MS_CFG.split('/').map(encodeURIComponent).join('/');
+  const m = await fetch(p + '?select=id,@microsoft.graph.downloadUrl', { headers: h });
+  if (!m.ok) throw new Error('OneDrive said ' + m.status + ' for the Remote-Chrome config file');
+  const u = (await m.json())['@microsoft.graph.downloadUrl'];
+  const r = u ? await fetch(u) : await fetch(p + ':/content', { headers: h });
+  if (!r.ok) throw new Error('Could not download the config file (' + r.status + ')');
+  const j = JSON.parse((await r.text()).replace(/^﻿/, ''));
+  if (!j.key) throw new Error('The config file has no key');
+  return j.key;
+}
+let msErr = '';
+async function autoKey() {
+  note('Getting the key from your Microsoft sign-in…');
+  try { cfg.key = await msKey(); cfg.fromMs = true; msErr = ''; dlog('key loaded via Microsoft sign-in'); note(''); return true; }
+  catch (e) { msErr = e.message; dlog('key via Microsoft failed: ' + e.message); note(''); return false; }
+}
+$('#bSet').onclick = () => { const s = $('#setup'); s.style.display = s.style.display === 'flex' ? 'none' : 'flex'; };
+$('#keySave').onclick = () => { const v = $('#keyIn').value.trim(); if (!v) return; LS.set('rc.key', v); cfg.key = v; cfg.fromMs = false; $('#keyIn').value = ''; startAll(); };
+$('#keyMs').onclick = async () => { if (await autoKey()) { $('#setup').style.display = 'none'; startAll(true); } else $('#keyNote').textContent = msErr; };
+$('#keyForget').onclick = () => { LS.set('rc.key', ''); cfg.key = ''; cfg.fromMs = false; $('#keyNote').textContent = 'Saved key removed from this device.'; };
+
+// ---- host chips and tiles ----
+function buildChips() {
+  $('#chips').innerHTML = '';
+  for (const n of ALL) {
+    const b = document.createElement('button');
+    b.className = 'chip' + (want.includes(n) ? ' on' : '') + (socks[n] && socks[n].online ? ' up' : '');
+    b.id = 'c-' + n; b.innerHTML = '<span class="dot"></span>' + n;
+    b.title = 'Show or hide ' + n;
+    b.onclick = () => { want = want.includes(n) ? want.filter((x) => x !== n) : [...want, n]; LS.set('watch.hosts', want.join(',')); b.classList.toggle('on', want.includes(n)); sync(); };
+    $('#chips').append(b);
+  }
+}
+function mkTile(n) {
+  const d = document.createElement('div'); d.className = 'tile'; d.id = 't-' + n;
+  d.innerHTML = '<video autoplay playsinline muted></video><div class="hd"><b></b><span class="st">waiting…</span></div><div class="hint">click to take control</div>';
+  d.querySelector('b').textContent = n;
+  d.onclick = () => expand(n);
+  $('#grid').append(d);
+  return (tiles[n] = { n, el: d, v: d.querySelector('video'), st: d.querySelector('.st'), conn: null, hold: false, retry: null });
+}
+const setSt = (n, t) => { const x = tiles[n]; if (x) x.st.textContent = t; };
+function sync() {
+  for (const n of ALL) {
+    const c = $('#c-' + n); if (c) c.classList.toggle('up', !!(socks[n] && socks[n].online));
+    if (want.includes(n)) {
+      const t = tiles[n] || mkTile(n);
+      if (!(socks[n] && socks[n].online)) { if (!t.conn) setSt(n, socks[n] ? 'offline' : 'waiting…'); }
+      else connect(n);
+    } else if (tiles[n]) { closeConn(n, false); clearTimeout(tiles[n].retry); tiles[n].el.remove(); delete tiles[n]; }
+  }
+  for (const n of ALL) if (tiles[n]) $('#grid').append(tiles[n].el);   // keep chip order
+  if (!want.length) note('Pick one or more PCs above.'); else if (!cfg.key) note('');
+}
+
+// ---- relay sockets (presence + signaling), one per host room ----
+async function openSock(n, g) {
+  if (g !== gen) return;
+  const s = socks[n] || (socks[n] = { online: false, ws: null, room: null, hb: null, tok: 0 });
+  const tok = ++s.tok;
+  if (s.ws && s.ws.readyState < 2) { const o = s.ws; o.onclose = null; try { o.close(); } catch {} clearInterval(s.hb); }
+  s.room = await RC.room(n);
+  if (tok !== s.tok || g !== gen) return;
+  const ws = RC.connect(s.room); s.ws = ws;
+  ws.onopen = () => { clearInterval(s.hb); s.hb = setInterval(() => { try { ws.send('ping'); } catch {} }, 20000); dlog(n + ': relay socket open'); };
+  ws.onmessage = (e) => {
+    if (e.data === 'pong') return;
+    let m; try { m = JSON.parse(e.data); } catch { return; }
+    if (m.t === 'presence') {
+      const was = s.online; s.online = !!m.host;
+      if (was !== s.online) dlog(n + ': ' + (s.online ? 'online' : 'offline'));
+      if (!s.online && tiles[n] && tiles[n].conn) closeConn(n, false, 'offline');
+      sync();
+    } else if (m.t !== 'hello') {
+      dlog(`${n}: relay msg ${m.t}${m.msg ? ' ' + m.msg : ''}`);
+      const t = tiles[n]; if (t && t.conn) onSignal(t.conn, m);
+    }
+  };
+  ws.onclose = () => {
+    dlog(n + ': relay socket closed');
+    if (tok !== s.tok) return;
+    clearInterval(s.hb); s.online = false; sync();
+    if (g === gen) setTimeout(() => openSock(n, g), 3000);
+  };
+  ws.onerror = () => {};
+}
+function wake() { if (document.hidden || !cfg.key) return; for (const n of ALL) { const s = socks[n]; if (!s || !s.ws || s.ws.readyState > 1) { dlog(n + ': relay socket reopened'); openSock(n, gen); } } }
+['visibilitychange', 'online', 'pageshow'].forEach((e) => addEventListener(e, wake));
+setInterval(wake, 5000);
+
+async function startAll(noStaleCheck) {
+  const myGen = ++gen;
+  for (const n of Object.keys(tiles)) closeConn(n, false);
+  for (const n of Object.keys(socks)) { try { socks[n].ws.onclose = null; socks[n].ws.close(); } catch {} clearInterval(socks[n].hb); delete socks[n]; }
+  buildChips(); sync();
+  if (!cfg.key) await autoKey();
+  if (!cfg.key) { $('#setup').style.display = 'flex'; $('#keyNote').textContent = msErr; note('No key yet. Open the gear: get it from the Microsoft sign-in (sign in on the Overview page first), or type it once.'); return; }
+  $('#keyNote').textContent = cfg.fromMs ? 'Key loaded from your Microsoft sign-in (kept in memory only).' : '';
+  note('');
+  if (!cfg.fromMs && !noStaleCheck) setTimeout(async () => {   // a typed key may be out of date after a key change: if no PC shows up, try the Microsoft key
+    if (gen !== myGen || cfg.fromMs || ALL.some((n) => socks[n] && socks[n].online)) return;
+    try { const k = await msKey(); if (k && k !== cfg.key) { dlog('saved key looks out of date; switching to the Microsoft key'); LS.set('rc.key', ''); cfg.key = k; cfg.fromMs = true; startAll(true); } } catch (e) { dlog('stale-key check: ' + e.message); }
+  }, 7000);
+  ALL.forEach((n) => openSock(n, gen));
+}
+
+// ---- WebRTC: view-only, low bitrate ----
+function bitrateHints(sdp, maxKbps) {
+  const start = Math.min(maxKbps, 300), min = Math.min(maxKbps, 100);
+  const hint = `x-google-start-bitrate=${start};x-google-min-bitrate=${min};x-google-max-bitrate=${maxKbps}`;
+  const lines = sdp.split('\r\n'), out = [], video = new Set();
+  let inVideo = false;
+  for (const l of lines) { if (l.startsWith('m=')) inVideo = l.startsWith('m=video'); if (inVideo) { const m = l.match(/^a=rtpmap:(\d+) (VP8|VP9|H264|AV1)\//i); if (m) video.add(m[1]); } }
+  for (const l of lines) {
+    const f = l.match(/^a=fmtp:(\d+) (.*)$/);
+    if (f && video.has(f[1])) { out.push(`a=fmtp:${f[1]} ${f[2]};${hint}`); continue; }
+    out.push(l);
+    const m = l.match(/^a=rtpmap:(\d+) (VP8|VP9|H264|AV1)\//i);
+    if (m && !lines.some((x) => x.startsWith(`a=fmtp:${m[1]} `))) out.push(`a=fmtp:${m[1]} ${hint}`);
+  }
+  return out.join('\r\n');
+}
+const sendQ = (c) => { if (c && c.dc && c.dc.readyState === 'open') c.dc.send(JSON.stringify({ t: 'q', hint: 'motion', kbps: QUAL[qual].kbps, fps: QUAL[qual].fps })); };
+async function connect(n) {
+  const s = socks[n], t = tiles[n];
+  if (!s || !t || t.conn || t.hold || !s.online || !s.ws || s.ws.readyState !== 1 || !cfg.key) return;
+  const sid = Math.random().toString(36).slice(2, 10);
+  const pc = new RTCPeerConnection({ iceServers: ICE });
+  const c = t.conn = { n, pc, sid, ready: false, dc: null, sigChain: Promise.resolve(), pend: [], ws: s.ws, last: { b: 0, t: 0 } };
+  dlog('connect ' + n); setSt(n, 'connecting…');
+  const dc = c.dc = pc.createDataChannel('ctl', { ordered: true });
+  dc.onopen = () => { c.ready = true; clearTimeout(c.to); dlog(n + ': data channel open'); setSt(n, 'live'); sendQ(c); c.stats = setInterval(() => stats(c), 2000); };
+  dc.onmessage = () => {};
+  dc.onclose = () => { if (t.conn === c) closeConn(n, true, 'closed'); };
+  pc.addTransceiver('video', { direction: 'recvonly' });
+  pc.ontrack = (e) => { try { e.receiver.jitterBufferTarget = 0; } catch {} t.v.srcObject = e.streams[0] || new MediaStream([e.track]); t.v.play().catch(() => {}); };
+  pc.onicecandidate = (e) => { if (e.candidate && c.ws.readyState === 1) c.ws.send(JSON.stringify({ t: 'ice', sid, c: e.candidate.toJSON() })); };
+  pc.oniceconnectionstatechange = () => dlog(n + ': ice ' + pc.iceConnectionState);
+  pc.onconnectionstatechange = () => { dlog(n + ': pc ' + pc.connectionState); if (t.conn === c && pc.connectionState === 'failed') closeConn(n, true, 'could not connect'); };
+  try {
+    const offer = await pc.createOffer();
+    offer.sdp = bitrateHints(offer.sdp, QUAL[qual].kbps);
+    await pc.setLocalDescription(offer);
+    const ts = Date.now();
+    c.ws.send(JSON.stringify({ t: 'offer', sid, ts, sdp: offer.sdp, sig: await RC.sign(`offer|${sid}|${ts}|${offer.sdp}`) }));
+  } catch (e) { return closeConn(n, true, e.message); }
+  c.to = setTimeout(() => { if (t.conn === c && !c.ready) { dlog(n + ': TIMEOUT, no data channel after 20 s'); closeConn(n, true, 'no answer'); } }, 20000);
+}
+// Signals one at a time; ICE candidates wait until the answer is applied.
+function onSignal(c, m) { c.sigChain = c.sigChain.then(() => handleSignal(c, m)).catch((e) => dlog(c.n + ': signal error ' + (e && e.message))); }
+async function handleSignal(c, m) {
+  const t = tiles[c.n]; if (!t || t.conn !== c) return;
+  if (m.t === 'ice' && m.sid === c.sid) {
+    if (c.pc.remoteDescription) await c.pc.addIceCandidate(m.c).catch(() => {}); else c.pend.push(m.c);
+  } else if (m.t === 'answer' && m.sid === c.sid) {
+    if (!(await RC.verify(`answer|${m.sid}|${m.ts}|${m.sdp}`, m.sig))) { dlog(c.n + ': answer had a bad signature'); return closeConn(c.n, true, 'bad signature'); }
+    await c.pc.setRemoteDescription({ type: 'answer', sdp: m.sdp });
+    for (const x of c.pend) await c.pc.addIceCandidate(x).catch(() => {});
+    c.pend = [];
+  } else if (m.t === 'error') { dlog(c.n + ': host said ' + m.msg); closeConn(c.n, true, m.msg, 15000); }
+}
+function closeConn(n, retry, why, delay) {
+  const t = tiles[n]; if (!t) return;
+  const c = t.conn; t.conn = null;
+  if (c) {
+    clearTimeout(c.to); clearInterval(c.stats);
+    try { if (c.ws.readyState === 1) c.ws.send(JSON.stringify({ t: 'bye', sid: c.sid })); } catch {}
+    try { c.dc.onclose = null; c.dc.close(); } catch {}
+    try { c.pc.onconnectionstatechange = null; c.pc.close(); } catch {}
+  }
+  t.v.srcObject = null;
+  setSt(n, why ? why : (socks[n] && socks[n].online ? 'paused' : 'offline'));
+  clearTimeout(t.retry);
+  if (retry) t.retry = setTimeout(() => { if (tiles[n] === t && !t.hold) connect(n); }, delay || 5000);
+}
+async function stats(c) {
+  try {
+    const r = await c.pc.getStats(); let b = 0, w = 0, h = 0, f = 0;
+    r.forEach((x) => { if (x.type === 'inbound-rtp' && x.kind === 'video') { b = x.bytesReceived; w = x.frameWidth || 0; h = x.frameHeight || 0; f = x.framesPerSecond || 0; } });
+    const now = performance.now(), kb = c.last.t ? Math.round((b - c.last.b) * 8 / (now - c.last.t)) : 0;
+    c.last = { b, t: now };
+    if (c.ready && w) setSt(c.n, `${w}×${h} · ${Math.round(f)} fps · ${kb} kbps`);
+  } catch {}
+}
+
+// ---- expand a tile: full-control Remote viewer, then back to the grid ----
+let ovFor = null;
+function expand(n) {
+  const t = tiles[n]; if (!t || ovFor) return;
+  ovFor = n; t.hold = true; clearTimeout(t.retry); closeConn(n, false, 'in control view');
+  $('#ovName').textContent = ' ' + n;
+  const f = document.createElement('iframe');
+  f.allow = 'fullscreen; clipboard-read; clipboard-write; autoplay';
+  f.src = 'remote.html?embed=1&connect=' + encodeURIComponent(n);
+  $('#ov').append(f); $('#ov').style.display = 'flex';
+}
+function collapse() {
+  if (!ovFor) return;
+  const f = $('#ov iframe'); if (f) f.remove();
+  $('#ov').style.display = 'none';
+  const n = ovFor; ovFor = null;
+  const t = tiles[n]; if (t) { t.hold = false; setTimeout(() => connect(n), 1500); }   // give the host a moment to drop the full-control session
+}
+$('#bBack').onclick = collapse;
+addEventListener('keydown', (e) => { if (e.key === 'Escape' && ovFor) collapse(); });
+addEventListener('pagehide', () => { for (const n of Object.keys(tiles)) closeConn(n, false); });
+
+$('#qual').value = qual;
+$('#qual').onchange = () => { qual = $('#qual').value; LS.set('watch.q', qual); for (const n of Object.keys(tiles)) { const c = tiles[n].conn; if (c && c.ready) sendQ(c); } note('Applies fully on the next reconnect.'); setTimeout(() => note(''), 4000); };
+$('#bRe').onclick = () => { for (const n of Object.keys(tiles)) { clearTimeout(tiles[n].retry); closeConn(n, false); } setTimeout(sync, 500); };
+startAll();
+</script></body></html>
