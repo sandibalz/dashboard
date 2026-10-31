@@ -24,6 +24,14 @@ button{cursor:pointer}button:hover{background:#30363d}
 .tile .hd{position:absolute;left:0;right:0;top:0;display:flex;justify-content:space-between;gap:8px;padding:4px 8px;background:linear-gradient(#000c,#0000);font-size:12px;pointer-events:none}
 .tile .st{color:#9fe;text-align:right}
 .tile .hint{position:absolute;right:8px;bottom:6px;font-size:11px;color:#8b949e;pointer-events:none}
+.tile.active{border-color:#3fb950;box-shadow:0 0 0 1px #3fb950}
+.tile.active video{touch-action:none;cursor:crosshair}
+.tile video{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.tile .hd{padding-right:38px}
+.tile .xb{position:absolute;top:3px;right:4px;width:28px;height:24px;padding:0;line-height:1;font-size:15px;z-index:2;background:#000a;border-color:#ffffff40}
+#keysbar{display:none;flex-wrap:wrap;gap:6px;padding:6px 8px;background:#161b22;border-top:1px solid #30363d}
+#keysbar .on,#bMode.on,#bKb.on{background:#1f6feb;border-color:#1f6feb}
+#hid{position:fixed;left:-1000px;top:0;width:10px;height:10px;opacity:0}
 #ov{position:fixed;inset:0;background:#0d1117;display:none;flex-direction:column;z-index:20}
 #ov iframe{flex:1;border:0;width:100%}
 #dbg{display:none;position:fixed;left:6px;right:6px;bottom:6px;max-height:45vh;overflow:auto;margin:0;padding:8px;background:#000d;color:#9fe;font:11px/1.35 ui-monospace,monospace;white-space:pre-wrap;z-index:30;border:1px solid #345;border-radius:8px}
@@ -32,6 +40,7 @@ body.embed .bar b{display:none}
 <div class="bar" id="top">
   <b>Watch</b><span id="chips" style="display:contents"></span>
   <select id="qual" title="Picture quality of the small tiles. Lower = less load on the watched PCs."><option value="low">Low (300 kbps, 5 fps)</option><option value="mid">Medium (800 kbps, 10 fps)</option><option value="high">High (2 Mbps, 15 fps)</option></select>
+  <button id="bMode" class="tog" title="Touch screens: one finger on the selected PC scrolls (Scroll) or drags (Drag)">Touch: Scroll</button><button id="bKb" title="Keyboard keys for the selected PC">&#9000; Keys</button>
   <button id="bRe" title="Reconnect all tiles">Reconnect</button>
   <button id="bSet" title="Key">&#9881;</button>
   <button id="bLog">Log</button>
@@ -45,6 +54,12 @@ body.embed .bar b{display:none}
 </div>
 <div id="note"></div>
 <div id="grid"></div>
+<div id="keysbar">
+  <button data-k="Escape">Esc</button><button data-k="Tab">Tab</button><button data-k="Backspace">&#9003;</button><button data-k="Enter">Enter</button>
+  <button data-k="ArrowLeft">&larr;</button><button data-k="ArrowUp">&uarr;</button><button data-k="ArrowDown">&darr;</button><button data-k="ArrowRight">&rarr;</button>
+  <button data-k="PageUp">PgUp</button><button data-k="PageDown">PgDn</button><button id="bCtl" class="tog">Ctrl</button>
+</div>
+<textarea id="hid" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
 <div id="ov"><div class="bar"><button id="bBack">&#9664; Back to grid</button><span id="ovName"></span><span style="color:#8b949e;font-size:12px">Full control. The small tile for this PC pauses while it is open.</span></div></div>
 <pre id="dbg"></pre>
 <script>
@@ -130,11 +145,15 @@ function buildChips() {
 }
 function mkTile(n) {
   const d = document.createElement('div'); d.className = 'tile'; d.id = 't-' + n;
-  d.innerHTML = '<video autoplay playsinline muted></video><div class="hd"><b></b><span class="st">waiting…</span></div><div class="hint">click to take control</div>';
+  d.innerHTML = '<video autoplay playsinline muted></video><div class="hd"><b></b><span class="st">waiting…</span></div><button class="xb" title="Open full size">&#x26F6;</button><div class="hint">tap to control</div>';
   d.querySelector('b').textContent = n;
-  d.onclick = () => expand(n);
+  const xb = d.querySelector('.xb');
+  xb.onpointerdown = (e) => e.stopPropagation();
+  xb.onclick = (e) => { e.stopPropagation(); expand(n); };
   $('#grid').append(d);
-  return (tiles[n] = { n, el: d, v: d.querySelector('video'), st: d.querySelector('.st'), conn: null, hold: false, retry: null });
+  const t = (tiles[n] = { n, el: d, v: d.querySelector('video'), st: d.querySelector('.st'), hint: d.querySelector('.hint'), conn: null, hold: false, retry: null });
+  wireInput(t);
+  return t;
 }
 const setSt = (n, t) => { const x = tiles[n]; if (x) x.st.textContent = t; };
 function sync() {
@@ -144,7 +163,7 @@ function sync() {
       const t = tiles[n] || mkTile(n);
       if (!(socks[n] && socks[n].online)) { if (!t.conn) setSt(n, socks[n] ? 'offline' : 'waiting…'); }
       else connect(n);
-    } else if (tiles[n]) { closeConn(n, false); clearTimeout(tiles[n].retry); tiles[n].el.remove(); delete tiles[n]; }
+    } else if (tiles[n]) { if (activeN === n) deselect(); closeConn(n, false); clearTimeout(tiles[n].retry); tiles[n].el.remove(); delete tiles[n]; }
   }
   for (const n of ALL) if (tiles[n]) $('#grid').append(tiles[n].el);   // keep chip order
   const em = $('#t-empty'), cnt = Object.keys(tiles).length;   // 3 tiles: leave the 4th slot of the 2x2 empty
@@ -219,7 +238,7 @@ function bitrateHints(sdp, maxKbps) {
   }
   return out.join('\r\n');
 }
-const sendQ = (c) => { if (c && c.dc && c.dc.readyState === 'open') c.dc.send(JSON.stringify({ t: 'q', hint: 'motion', kbps: QUAL[qual].kbps, fps: QUAL[qual].fps })); };
+const sendQ = (c, boost) => { if (c && c.dc && c.dc.readyState === 'open') { const q = boost ? QUAL.high : QUAL[qual]; c.dc.send(JSON.stringify({ t: 'q', hint: 'motion', kbps: q.kbps, fps: q.fps })); } };   // the cap is set by this message; the SDP hint below only sets the ceiling
 async function connect(n) {
   const s = socks[n], t = tiles[n];
   if (!s || !t || t.conn || t.hold || !s.online || !s.ws || s.ws.readyState !== 1 || !cfg.key) return;
@@ -228,7 +247,7 @@ async function connect(n) {
   const c = t.conn = { n, pc, sid, ready: false, dc: null, sigChain: Promise.resolve(), pend: [], ws: s.ws, last: { b: 0, t: 0 } };
   dlog('connect ' + n); setSt(n, 'connecting…');
   const dc = c.dc = pc.createDataChannel('ctl', { ordered: true });
-  dc.onopen = () => { c.ready = true; clearTimeout(c.to); dlog(n + ': data channel open'); setSt(n, 'live'); sendQ(c); c.stats = setInterval(() => stats(c), 2000); };
+  dc.onopen = () => { c.ready = true; clearTimeout(c.to); dlog(n + ': data channel open'); setSt(n, 'live'); sendQ(c, activeN === n); c.stats = setInterval(() => stats(c), 2000); };
   dc.onmessage = () => {};
   dc.onclose = () => { if (t.conn === c) closeConn(n, true, 'closed'); };
   pc.addTransceiver('video', { direction: 'recvonly' });
@@ -238,7 +257,7 @@ async function connect(n) {
   pc.onconnectionstatechange = () => { dlog(n + ': pc ' + pc.connectionState); if (t.conn === c && pc.connectionState === 'failed') closeConn(n, true, 'could not connect'); };
   try {
     const offer = await pc.createOffer();
-    offer.sdp = bitrateHints(offer.sdp, QUAL[qual].kbps);
+    offer.sdp = bitrateHints(offer.sdp, QUAL.high.kbps);
     await pc.setLocalDescription(offer);
     const ts = Date.now();
     c.ws.send(JSON.stringify({ t: 'offer', sid, ts, sdp: offer.sdp, sig: await RC.sign(`offer|${sid}|${ts}|${offer.sdp}`) }));
@@ -282,11 +301,179 @@ async function stats(c) {
   } catch {}
 }
 
+// ---- interact with a tile (select it, then click / scroll / type; the selected tile gets a sharper, faster picture) ----
+let activeN = null, touchMode = 'scroll', ctl = false;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const act = () => (activeN && tiles[activeN]) || null;
+const sendT = (t, o) => { const c = t && t.conn; if (c && c.ready && c.dc.readyState === 'open') c.dc.send(JSON.stringify(o)); };
+const mods = (e) => (e.altKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.metaKey ? 4 : 0) | (e.shiftKey ? 8 : 0);
+function select(n) {
+  if (activeN === n) return;
+  deselect();
+  const t = tiles[n]; if (!t) return;
+  activeN = n; t.el.classList.add('active'); t.hint.textContent = 'control on · Esc to stop';
+  sendQ(t.conn, true); dlog(n + ': control on');
+}
+function deselect() {
+  const t = act(); activeN = null; ctl = false; $('#bCtl').classList.remove('on');
+  $('#keysbar').style.display = 'none'; $('#bKb').classList.remove('on'); $('#hid').blur();
+  if (t) { t.el.classList.remove('active'); t.hint.textContent = 'tap to control'; sendQ(t.conn, false); dlog(t.n + ': control off'); }
+}
+function uvT(t, cx, cy) {
+  const v = t.v, r = v.getBoundingClientRect(), vw = v.videoWidth, vh = v.videoHeight;
+  if (!vw || !vh) return null;
+  const sc = Math.min(r.width / vw, r.height / vh), cw = vw * sc, ch = vh * sc;
+  const x = (cx - r.left - (r.width - cw) / 2) / cw, y = (cy - r.top - (r.height - ch) / 2) / ch;
+  if (x < 0 || x > 1 || y < 0 || y > 1) return null;
+  return { u: x, v: y };
+}
+const clickT = async (t, p, btn, cc) => {
+  sendT(t, { t: 'in', k: 'mm', ...p, b: 0, bs: 0, mod: 0 });
+  sendT(t, { t: 'in', k: 'md', ...p, b: btn, bs: btn === 2 ? 2 : 1, cc, mod: 0 });
+  await sleep(40);
+  sendT(t, { t: 'in', k: 'mu', ...p, b: btn, bs: 0, cc, mod: 0 });
+};
+function wireInput(t) {
+  const v = t.v, g = { id: null, x0: 0, y0: 0, x: 0, y: 0, moved: false, long: null, dragging: false, lastTap: 0, lastTapX: 0, lastTapY: 0, mdown: false };
+  let moveE = null, raf = 0;
+  const on = () => activeN === t.n && t.conn && t.conn.ready;
+  v.addEventListener('pointerdown', (e) => {
+    if (activeN !== t.n) { select(t.n); e.preventDefault(); return; }   // the first tap only selects
+    if (!on()) return;
+    if (e.pointerType === 'mouse') {
+      const p = uvT(t, e.clientX, e.clientY); if (!p) return;
+      try { v.setPointerCapture(e.pointerId); } catch {} g.mdown = true;
+      sendT(t, { t: 'in', k: 'md', ...p, b: e.button, bs: e.buttons, cc: e.detail || 1, mod: mods(e) });
+      e.preventDefault(); return;
+    }
+    if (g.id !== null) return;
+    g.id = e.pointerId; g.x0 = g.x = e.clientX; g.y0 = g.y = e.clientY; g.moved = false; g.dragging = false;
+    try { v.setPointerCapture(e.pointerId); } catch {} clearTimeout(g.long);
+    g.long = setTimeout(() => { if (g.id === null || g.moved) return; const p = uvT(t, g.x, g.y); if (p) clickT(t, p, 2, 1); g.long = 'done'; }, 550);   // long press = right click
+    e.preventDefault();
+  });
+  v.addEventListener('pointermove', (e) => {
+    if (!on()) return;
+    if (e.pointerType === 'mouse') {
+      moveE = e;
+      if (!raf) raf = requestAnimationFrame(() => {
+        raf = 0; const p = moveE && uvT(t, moveE.clientX, moveE.clientY); if (!p || !on()) return;
+        if (t.conn.dc.bufferedAmount > 65536) return;
+        sendT(t, { t: 'in', k: 'mm', ...p, b: moveE.button, bs: moveE.buttons, mod: mods(moveE) });
+      });
+      return;
+    }
+    if (e.pointerId !== g.id) return;
+    const dx = e.clientX - g.x, dy = e.clientY - g.y;
+    if (!g.moved && Math.hypot(e.clientX - g.x0, e.clientY - g.y0) < 8) return;
+    if (g.long === 'done') return;
+    if (!g.moved) { g.moved = true; clearTimeout(g.long); }
+    g.x = e.clientX; g.y = e.clientY;
+    const p = uvT(t, e.clientX, e.clientY);
+    if (touchMode === 'drag') {
+      const p0 = uvT(t, g.x0, g.y0);
+      if (!g.dragging && p0) { g.dragging = true; sendT(t, { t: 'in', k: 'mm', ...p0, b: 0, bs: 0, mod: 0 }); sendT(t, { t: 'in', k: 'md', ...p0, b: 0, bs: 1, cc: 1, mod: 0 }); }
+      if (p && t.conn.dc.bufferedAmount < 65536) sendT(t, { t: 'in', k: 'mm', ...p, b: 0, bs: 1, mod: 0 });
+    } else if (p) {
+      const r = v.getBoundingClientRect(), vw = v.videoWidth || 1, k = 1.6 * vw / r.width;   // finger px -> remote px
+      sendT(t, { t: 'in', k: 'mw', ...p, dx: -dx * k, dy: -dy * k, mod: 0 });
+    }
+    e.preventDefault();
+  });
+  const end = (e, cancelled) => {
+    if (e.pointerType === 'mouse') {
+      if (!g.mdown) return; g.mdown = false;
+      const p = uvT(t, e.clientX, e.clientY) || { u: 0.5, v: 0.5 };
+      sendT(t, { t: 'in', k: 'mu', ...p, b: e.button, bs: e.buttons, cc: e.detail || 1, mod: mods(e) });
+      return;
+    }
+    if (e.pointerId !== g.id) return;
+    clearTimeout(g.long);
+    const wasLong = g.long === 'done'; g.id = null; g.long = null;
+    if (cancelled) return;
+    const p = uvT(t, e.clientX, e.clientY) || uvT(t, g.x0, g.y0);
+    if (g.dragging) { if (p) sendT(t, { t: 'in', k: 'mu', ...p, b: 0, bs: 0, cc: 1, mod: 0 }); g.dragging = false; return; }
+    if (g.moved || wasLong || !p) return;
+    const now = Date.now(), dbl = now - g.lastTap < 380 && Math.hypot(e.clientX - g.lastTapX, e.clientY - g.lastTapY) < 30;
+    g.lastTap = dbl ? 0 : now; g.lastTapX = e.clientX; g.lastTapY = e.clientY;
+    clickT(t, p, 0, dbl ? 2 : 1);
+  };
+  v.addEventListener('pointerup', (e) => end(e, false));
+  v.addEventListener('pointercancel', (e) => end(e, true));
+  v.addEventListener('wheel', (e) => {
+    if (!on()) return;
+    const p = uvT(t, e.clientX, e.clientY); if (!p) return; e.preventDefault();
+    const k = e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? 800 : 1;
+    sendT(t, { t: 'in', k: 'mw', ...p, dx: e.deltaX * k, dy: e.deltaY * k, mod: mods(e) });
+  }, { passive: false });
+  v.addEventListener('contextmenu', (e) => { if (activeN === t.n) e.preventDefault(); });
+}
+// tapping anywhere else (not the Keys / Touch buttons or the key bar) turns control off
+addEventListener('pointerdown', (e) => {
+  const t = act(); if (!t || t.el.contains(e.target)) return;
+  if (e.target.closest && e.target.closest('#keysbar,#bKb,#bMode')) return;
+  deselect();
+}, true);
+// keyboard (desktop): goes to the selected tile only; Esc turns control off (use the Keys bar to send Esc to the PC)
+const KC = { Backspace: 8, Tab: 9, Enter: 13, Escape: 27, PageUp: 33, PageDown: 34, ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, Delete: 46 };
+const typing = () => { const a = document.activeElement; return !!a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName); };
+async function pasteLocal() {
+  const t = act(); if (!t) return;
+  try { const x = await navigator.clipboard.readText(); if (x) sendT(t, { t: 'in', k: 'tx', text: x }); else note('Clipboard is empty.'); }
+  catch (e) { note('Clipboard blocked: ' + e.message); }
+}
+addEventListener('keydown', (e) => {
+  const t = act(); if (!t || typing() || ovFor) return;
+  if (e.key === 'Escape') { deselect(); e.preventDefault(); return; }
+  e.preventDefault();
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') return pasteLocal();
+  sendT(t, { t: 'in', k: 'kd', key: e.key, code: e.code, kc: e.keyCode, text: e.key === 'Enter' ? '\r' : e.key.length === 1 ? e.key : undefined, mod: mods(e), rep: e.repeat });
+}, true);
+addEventListener('keyup', (e) => {
+  const t = act(); if (!t || typing() || ovFor) return;
+  e.preventDefault(); sendT(t, { t: 'in', k: 'ku', key: e.key, code: e.code, kc: e.keyCode, mod: mods(e) });
+}, true);
+// Keys bar + phone keyboard (typed text goes through a hidden textarea)
+function pressKey(key, extraMod) {
+  const t = act(); if (!t) return;
+  const mod = (extraMod || 0) | (ctl ? 2 : 0);
+  sendT(t, { t: 'in', k: 'kd', key, code: key.length === 1 ? 'Key' + key.toUpperCase() : key, kc: KC[key] || key.toUpperCase().charCodeAt(0), text: key === 'Enter' ? '\r' : key.length === 1 ? key : undefined, mod, rep: false });
+  sendT(t, { t: 'in', k: 'ku', key, code: key.length === 1 ? 'Key' + key.toUpperCase() : key, kc: KC[key] || key.toUpperCase().charCodeAt(0), mod });
+}
+$('#bCtl').onclick = () => { ctl = !ctl; $('#bCtl').classList.toggle('on', ctl); };
+document.querySelectorAll('#keysbar [data-k]').forEach((b) => { b.onclick = () => { pressKey(b.dataset.k); if (ctl) { ctl = false; $('#bCtl').classList.remove('on'); } }; });
+$('#bKb').onclick = () => {
+  if (!act()) { note('Tap a tile first, then Keys.'); setTimeout(() => note(''), 3000); return; }
+  const k = $('#keysbar'), on = k.style.display !== 'flex';
+  k.style.display = on ? 'flex' : 'none'; $('#bKb').classList.toggle('on', on);
+  if (on) { const h = $('#hid'); h.value = ''; h.focus(); } else $('#hid').blur();
+};
+$('#bMode').onclick = () => { touchMode = touchMode === 'scroll' ? 'drag' : 'scroll'; $('#bMode').textContent = 'Touch: ' + (touchMode === 'scroll' ? 'Scroll' : 'Drag'); $('#bMode').classList.toggle('on', touchMode === 'drag'); };
+const hid = $('#hid');
+hid.addEventListener('beforeinput', (e) => {
+  const t = act(); if (!t) return;
+  e.preventDefault();
+  if (e.inputType === 'insertText' || e.inputType === 'insertCompositionText' || e.inputType === 'insertFromPaste') {
+    if (e.data) { if (ctl && e.data.length === 1) { pressKey(e.data); ctl = false; $('#bCtl').classList.remove('on'); } else sendT(t, { t: 'in', k: 'tx', text: e.data }); }
+  } else if (e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph') pressKey('Enter');
+  else if (e.inputType === 'deleteContentBackward') pressKey('Backspace');
+  else if (e.inputType === 'deleteContentForward') pressKey('Delete');
+});
+hid.addEventListener('keydown', (e) => {   // physical keys / keys phone keyboards do report
+  const t = act(); if (!t) return;
+  if (e.key === 'Unidentified' || e.key === 'Process') return;
+  if (e.key.length === 1 && !(e.ctrlKey || e.metaKey)) return;   // handled by beforeinput
+  e.preventDefault();
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') return pasteLocal();
+  sendT(t, { t: 'in', k: 'kd', key: e.key, code: e.code, kc: e.keyCode, text: undefined, mod: mods(e), rep: e.repeat });
+  sendT(t, { t: 'in', k: 'ku', key: e.key, code: e.code, kc: e.keyCode, mod: mods(e) });
+});
+
 // ---- expand a tile: full-control Remote viewer, then back to the grid ----
 let ovFor = null;
 function expand(n) {
   const t = tiles[n]; if (!t || ovFor) return;
-  ovFor = n; t.hold = true; clearTimeout(t.retry); closeConn(n, false, 'in control view');
+  deselect(); ovFor = n; t.hold = true; clearTimeout(t.retry); closeConn(n, false, 'in control view');
   $('#ovName').textContent = ' ' + n;
   const f = document.createElement('iframe');
   f.allow = 'fullscreen; clipboard-read; clipboard-write; autoplay';
@@ -305,7 +492,7 @@ addEventListener('keydown', (e) => { if (e.key === 'Escape' && ovFor) collapse()
 addEventListener('pagehide', () => { for (const n of Object.keys(tiles)) closeConn(n, false); });
 
 $('#qual').value = qual;
-$('#qual').onchange = () => { qual = $('#qual').value; LS.set('watch.q', qual); for (const n of Object.keys(tiles)) { const c = tiles[n].conn; if (c && c.ready) sendQ(c); } note('Applies fully on the next reconnect.'); setTimeout(() => note(''), 4000); };
+$('#qual').onchange = () => { qual = $('#qual').value; LS.set('watch.q', qual); for (const n of Object.keys(tiles)) { const c = tiles[n].conn; if (c && c.ready) sendQ(c, n === activeN); } note('Quality changed.'); setTimeout(() => note(''), 3000); };
 $('#bRe').onclick = () => { for (const n of Object.keys(tiles)) { clearTimeout(tiles[n].retry); closeConn(n, false); } setTimeout(sync, 500); };
 startAll();
 </script></body></html>
