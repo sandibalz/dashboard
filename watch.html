@@ -13,7 +13,10 @@ button{cursor:pointer}button:hover{background:#30363d}
 .chip.up .dot{background:#3fb950}
 #setup{display:none;flex-wrap:wrap;gap:6px;padding:6px 8px;background:#161b22;border-bottom:1px solid #30363d}
 #note{padding:6px 10px;color:#8b949e;font-size:12px}
-#grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:8px;padding:8px}
+#grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:8px}
+@media (max-width:520px){#grid{grid-template-columns:minmax(0,1fr)}}
+.tile.empty{cursor:default;border-style:dashed;display:flex;align-items:center;justify-content:center;aspect-ratio:16/9;color:#6e7681;background:#0d1117}
+.tile.empty:hover{border-color:#30363d}
 .tile{position:relative;background:#000;border:1px solid #30363d;border-radius:8px;overflow:hidden;cursor:pointer}
 .tile:hover{border-color:#1f6feb}
 .tile video{display:block;width:100%;aspect-ratio:16/9;object-fit:contain;background:#000}
@@ -143,6 +146,8 @@ function sync() {
     } else if (tiles[n]) { closeConn(n, false); clearTimeout(tiles[n].retry); tiles[n].el.remove(); delete tiles[n]; }
   }
   for (const n of ALL) if (tiles[n]) $('#grid').append(tiles[n].el);   // keep chip order
+  const em = $('#t-empty'), cnt = Object.keys(tiles).length;   // 3 tiles: leave the 4th slot of the 2x2 empty
+  if (cnt === 3 && !em) { const d = document.createElement('div'); d.className = 'tile empty'; d.id = 't-empty'; d.textContent = 'Empty slot'; $('#grid').append(d); } else if (cnt === 3 && em) $('#grid').append(em); else if (cnt !== 3 && em) em.remove();
   if (!want.length) note('Pick one or more PCs above.'); else if (!cfg.key) note('');
 }
 
