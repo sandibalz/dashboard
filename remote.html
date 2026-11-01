@@ -289,6 +289,8 @@ async function handleSignal(c, m) {
     dlog('answer received');
     if (!(await RC.verify(`answer|${m.sid}|${m.ts}|${m.sdp}`, m.sig))) return show('Answer had a bad signature. Refusing.', true);
     await c.pc.setRemoteDescription({ type: 'answer', sdp: m.sdp });
+    try { const am = (m.sdp.split(/\r?\nm=/).find((x) => x.startsWith('audio')) || ''); const dir = (am.match(/a=(sendonly|recvonly|sendrecv|inactive)/) || [])[1]; dlog('host answer audio section: ' + (am ? 'present, ' + dir : 'MISSING')); } catch {}
+    setTimeout(async () => { try { if (cur !== c) return; const st = await c.pc.getStats(); let a = 'no audio stats'; st.forEach((r) => { if (r.type === 'inbound-rtp' && r.kind === 'audio') a = 'audio bytes ' + r.bytesReceived + ', packets ' + r.packetsReceived; }); dlog('audio check: ' + a); } catch (e) { dlog('audio check failed ' + e.message); } }, 4000);
     dlog('answer applied, adding ' + (c.pendIce ? c.pendIce.length : 0) + ' waiting candidates');
     for (const x of (c.pendIce || [])) await c.pc.addIceCandidate(x).catch((e) => dlog('addIce failed: ' + e.message));
     c.pendIce = [];
