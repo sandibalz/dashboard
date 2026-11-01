@@ -306,7 +306,7 @@ async function inputStatus(tries = 0) {
   try {
     const st = await rpc('native');
     b.dataset.ok = st.connected ? '1' : '';
-    if (!st.connected && tries < 8 && cur) { b.textContent = 'Input: checking...'; setTimeout(() => { if (cur) inputStatus(tries + 1); }, 1000); return; }
+    if (!st.connected && tries < 20 && cur) { b.textContent = 'Input: checking...'; setTimeout(() => { if (cur) inputStatus(tries + 1); }, 1000); return; }
     if (!st.connected) { b.textContent = 'Input: Chrome only'; b.title = 'Helper not connected' + (st.err ? ': ' + st.err : ''); dlog('input helper not connected' + (st.err ? ': ' + st.err : '')); }
     else { b.textContent = st.mode === 'chrome' ? 'Input: Chrome tabs' : 'Input: Whole desktop'; b.classList.toggle('on', st.mode !== 'chrome'); b.disabled = false; b.dataset.mode = st.mode; }
   } catch { b.textContent = 'Input: Chrome only'; b.dataset.ok = ''; }
@@ -334,7 +334,7 @@ function disconnect(quiet) {
     try { c.dc.close(); } catch {} try { c.pc.close(); } catch {}
   }
   if (!barsTouched) setBars(false);
-  $('#v').srcObject = null; audioSeen(false); $('#stats').textContent = ''; try { zReset(); } catch {}
+  $('#v').srcObject = null; $('#v').muted = true; audioSeen(false); $('#stats').textContent = ''; try { zReset(); } catch {}
   $('#tabsel').innerHTML = '<option>Tabs</option>'; $('#bIn').disabled = true; $('#bIn').textContent = 'Input: ?';
   CTRL.forEach((id) => { $('#' + id).disabled = true; });
   $('#keys').style.display = 'none';
@@ -427,7 +427,19 @@ $('#keySave').onclick = () => {
 };
 function audioSeen(on) { const b = $('#bSnd'); b.dataset.has = on ? '1' : ''; sndUi(); }
 function sndUi() { const b = $('#bSnd'), v = $('#v'); b.innerHTML = v.muted ? '&#128263; Sound' : '&#128266; Sound'; b.classList.toggle('on', !v.muted); b.style.opacity = b.dataset.has ? '' : '.5'; }
-$('#bSnd').onclick = () => { const v = $('#v'); v.muted = !v.muted; if (!v.muted) v.play().catch(() => {}); if (!$('#bSnd').dataset.has) dlog('no audio track from this host yet (update/reload its Remote-Chrome extension to 0.2.2)'); sndUi(); };
+$('#bSnd').onclick = async () => {
+  const v = $('#v');
+  if (!cur) return;
+  if (v.muted) {
+    v.muted = false; v.play().catch(() => {}); sndUi();
+    try { await rpc('sound', { on: true }); dlog('sound on'); }
+    catch (e) { v.muted = true; sndUi(); flash(e.message); dlog('sound failed: ' + e.message); }
+  } else {
+    v.muted = true; sndUi();
+    try { await rpc('sound', { on: false }); } catch {}
+    dlog('sound off');
+  }
+};
 $('#bFs').onclick = () => { const d = document.documentElement; (document.fullscreenElement ? document.exitFullscreen() : (d.requestFullscreen || d.webkitRequestFullscreen).call(d)).catch?.(() => {}); };
 
 // ---- input: coordinates ----
