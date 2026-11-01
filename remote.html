@@ -242,7 +242,7 @@ async function connect(n) {
   const c = cur = { name: n, pc, dc: null, sid, ws: s.ws, ready: false };
   document.querySelectorAll('.host').forEach((b) => b.classList.toggle('cur', b.id === 'h-' + n));
   const dc = c.dc = pc.createDataChannel('ctl', { ordered: true });
-  dc.onopen = () => { dlog('data channel open'); c.ready = true; sendQ(); onConnected(); };
+  dc.onopen = () => { dlog('data channel open'); c.ready = true; sendQ(); onConnected(); setTimeout(() => { rpc('hostinfo').then((r) => dlog('hostinfo: extension ' + r.ver + ', audio tracks ' + r.aud + ', video tracks ' + r.vid + (r.atrState ? ', audio ' + r.atrState : '') + (r.audNote ? ', audio error: ' + r.audNote : '')), (e) => dlog('hostinfo failed: ' + e.message + ' (host extension is old or does not know hostinfo)')); }, 500); };
   dc.onmessage = onDc;
   dc.onclose = () => { if (cur === c) { show('Connection closed.', true); disconnect(true); } };
   const tr = pc.addTransceiver('video', { direction: 'recvonly' });
