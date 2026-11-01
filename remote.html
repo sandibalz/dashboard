@@ -35,6 +35,7 @@ body.hidebars #top,body.hidebars #tools,body.hidebars #keys,body.hidebars #setup
   <span id="hosts" style="display:contents"></span>
   <button id="btnDisc" disabled>Disconnect</button>
   <button id="bSet" title="Key and relay">&#9881;</button>
+  <button id="bSnd" title="Sound from the PC (needs a Remote-Chrome host 0.2.2 or newer)">&#128263; Sound</button>
   <button id="bFs" title="Full screen">&#9974;</button>
   <button id="bLog" title="Connection log">Log</button>
   <button id="bZ" title="Pinch with two fingers to zoom this view. Tap to reset.">Zoom 1&times;</button>
@@ -246,10 +247,14 @@ async function connect(n) {
   dc.onclose = () => { if (cur === c) { show('Connection closed.', true); disconnect(true); } };
   const tr = pc.addTransceiver('video', { direction: 'recvonly' });
   codecPrefs(tr, $('#codec').value);
+  pc.addTransceiver('audio', { direction: 'recvonly' });
+  const ms = new MediaStream();
   pc.ontrack = (e) => {
     try { e.receiver.jitterBufferTarget = 0; } catch {}
     try { e.receiver.playoutDelayHint = 0; } catch {}
-    $('#v').srcObject = e.streams[0] || new MediaStream([e.track]);
+    if (e.track.kind === 'audio') { audioSeen(true); }
+    ms.addTrack(e.track);
+    if ($('#v').srcObject !== ms) $('#v').srcObject = ms;
     $('#v').play().catch(() => {});
   };
   pc.onicecandidate = (e) => { if (e.candidate) { const ty = (e.candidate.candidate.match(/ typ (\w+)/) || [])[1]; dlog('local ice ' + ty); s.ws.send(JSON.stringify({ t: 'ice', sid, c: e.candidate.toJSON() })); } else dlog('local ice gathering done'); };
@@ -326,7 +331,7 @@ function disconnect(quiet) {
     try { c.dc.close(); } catch {} try { c.pc.close(); } catch {}
   }
   if (!barsTouched) setBars(false);
-  $('#v').srcObject = null; $('#stats').textContent = ''; try { zReset(); } catch {}
+  $('#v').srcObject = null; audioSeen(false); $('#stats').textContent = ''; try { zReset(); } catch {}
   $('#tabsel').innerHTML = '<option>Tabs</option>'; $('#bIn').disabled = true; $('#bIn').textContent = 'Input: ?';
   CTRL.forEach((id) => { $('#' + id).disabled = true; });
   $('#keys').style.display = 'none';
@@ -416,6 +421,9 @@ $('#keySave').onclick = () => {
   cfg.relay = r; LS.set('rc.relay', r);
   $('#setup').style.display = 'none'; startAll();
 };
+function audioSeen(on) { const b = $('#bSnd'); b.dataset.has = on ? '1' : ''; sndUi(); }
+function sndUi() { const b = $('#bSnd'), v = $('#v'); b.innerHTML = v.muted ? '&#128263; Sound' : '&#128266; Sound'; b.classList.toggle('on', !v.muted); b.style.opacity = b.dataset.has ? '' : '.5'; }
+$('#bSnd').onclick = () => { const v = $('#v'); v.muted = !v.muted; if (!v.muted) v.play().catch(() => {}); if (!$('#bSnd').dataset.has) dlog('no audio track from this host yet (update/reload its Remote-Chrome extension to 0.2.2)'); sndUi(); };
 $('#bFs').onclick = () => { const d = document.documentElement; (document.fullscreenElement ? document.exitFullscreen() : (d.requestFullscreen || d.webkitRequestFullscreen).call(d)).catch?.(() => {}); };
 
 // ---- input: coordinates ----
