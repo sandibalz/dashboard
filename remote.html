@@ -346,6 +346,7 @@ const send = (o) => { if (cur && cur.dc && cur.dc.readyState === 'open') cur.dc.
 function onDc(e) {
   let m; try { m = JSON.parse(e.data); } catch { return; }
   if (m.t === 'rpcR') { const w = rpcWait.get(m.id); if (w) { rpcWait.delete(m.id); m.ok ? w.res(m.r) : w.rej(new Error(m.err)); } }
+  else if (m.t === 'hello') dlog(`host ${m.name} extension ${m.ver || 'old'}: audio tracks captured ${m.aud}${m.audNote ? ' (' + m.audNote + ')' : ''}`);
   else if (m.t === 'err') flash(m.msg);
   else if (m.t === 'pong') { if (cur) cur.rtt = Date.now() - m.ts; }
 }
