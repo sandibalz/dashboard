@@ -69,6 +69,7 @@ h2 { font-size: 0.95em; color: var(--mute); margin: 18px 0 6px; display: flex; f
 .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .bal div:first-child { font-weight: 600; }
 .bal div + div { font-size: 11px; color: var(--soft); }
+.live { font-size: 11px; font-weight: 600; margin-top: 2px; }
 .g { font-size: 11px; font-weight: 600; } .g.up { color: var(--good); } .g.dn { color: var(--bad); } .g.zero { color: #a4b0be; }
 .st-success { color: var(--good); } .st-proc { color: var(--warn); } .st-fail { color: var(--bad); font-weight: 600; } .st-none { color: var(--warn); }
 .setrow { display: none; gap: 3px; margin-top: 2px; }
@@ -124,7 +125,7 @@ code.k { background: var(--head); border: 1px solid var(--line); border-radius: 
 <body>
 <div class="top">
   <div class="owners" id="owners" role="tablist" aria-label="Owner"></div>
-  <div class="sum"><span id="sum" style="display:contents"></span><span class="tools"><span class="sub" id="refreshed"></span><button class="tbtn" id="btn-refresh" title="Reload from OneDrive">↻</button><button class="tbtn" id="btn-view">Table</button><button class="tbtn" id="btn-remote">Remote</button><button class="tbtn" id="btn-watch" title="Watch several PCs at once (view only, click a tile to take control)">Watch</button><button class="tbtn" id="btn-publish">Publish</button><button class="tbtn" id="btn-settings">Settings</button></span></div>
+  <div class="sum"><span id="sum" style="display:contents"></span><span class="tools"><span class="sub" id="pgver" title="Version of this page. If it is not the latest, press Publish on the page that has it, then reload (the engine version shown is what the selected owner's Chrome is running)."></span><span class="sub" id="refreshed"></span><button class="tbtn" id="btn-refresh" title="Reload from OneDrive">↻</button><button class="tbtn" id="btn-view">Table</button><button class="tbtn" id="btn-remote">Remote</button><button class="tbtn" id="btn-watch" title="Watch several PCs at once (view only, click a tile to take control)">Watch</button><button class="tbtn" id="btn-publish">Publish</button><button class="tbtn" id="btn-settings">Settings</button></span></div>
   <div id="notes"></div>
 </div>
 <div id="rem" hidden></div>
@@ -244,7 +245,8 @@ function rowsOf(o) {
       : fromFile;
     const a = (L, k) => (L || []).slice(0, 3).filter(e => e[k] != null).map(e => [e[k], e.gain || 0]);
     return Object.assign({ id, n: p.name, file: p.file, ver: p.profileVersion, en: p.enabled !== false ? 1 : 0, ord: p.order || 0, st: p.lastStatus || '', lastAt: p.lastRunAt, nextAt: p.nextRunAt,
-      gc: a(p.gcLast3, 'gc'), sc: a(p.scLast3, 'sc'), why: p.softFailReason || '', rt: p.lastRunTime || '', pending: !s },
+      gc: a(p.gcLast3, 'gc'), sc: a(p.scLast3, 'sc'), why: p.softFailReason || '', rt: p.lastRunTime || '', pending: !s,
+      canBal: !!p.canReadBalance, liveGC: p.liveGC, liveSC: p.liveSC, liveAt: p.liveAt, liveErr: p.liveErr, liveErrAt: p.liveErrAt, liveReading: !!p.liveReading },
       s || { rule: 'midnight', hrs: 24, auth: 'credentials', host: '', notes: '', steps: 1, type: '' });
   });
 }
@@ -273,6 +275,17 @@ const rowCls = p => {
   if (!p.pending && p.steps && p.en && p.rule !== 'manual' && p.rule !== 'notSignedUp' && typeof p.lastAt === 'number') { const t = new Date(); t.setHours(0, 0, 0, 0); if (p.lastAt < t.getTime()) c += ' row-stale'; }
   return c;
 };
+/* 11/1/26a: "Now" line = latest balance-only read (button on Free Spins sites). Blue = fine, red = the last read failed. */
+const PAGE_VERSION = '2026-11-01a';
+const agoTxt = ms => { const m = Math.max(0, Math.round((Date.now() - ms) / 60000)); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago'; };
+function liveLine(p, m) {
+  if (!p.canBal) return '';
+  const v = m === 'gc' ? p.liveGC : p.liveSC, d = m === 'gc' ? 0 : 2, has = v !== undefined && v !== null;
+  const errNewer = p.liveErr && (!p.liveAt || (p.liveErrAt || 0) >= p.liveAt);
+  if (p.liveReading) return '<div class="live" style="color:var(--soft)">Now ⏳ reading…</div>';
+  if (!has && !p.liveErr) return '<div class="live" style="color:#a4b0be" title="No balance read yet: tap the blue ↻ button on this row">Now —</div>';
+  return `<div class="live" style="color:${errNewer ? 'var(--bad)' : '#2e86de'}" title="${esc((p.liveAt ? 'Balance read ' + dt(p.liveAt, { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '') + (errNewer ? ' LAST READ PROBLEM: ' + p.liveErr : ''))}">Now ${has ? fmt(v, d) : ''}${errNewer ? (has ? ' ⚠' : '✕') : ''}${has && p.liveAt ? ' · ' + agoTxt(p.liveAt) : ''}</div>`;
+}
 const bal = (arr, d) => arr.length ? arr.map(([v, g]) => `<div>${fmt(v, d)} <span class="g ${gcls(g)}">${gain(g, d)}</span></div>`).join('') : '—';
 function nextTxt(p) {
   if (!p.en || !p.steps) return '—';
@@ -303,7 +316,8 @@ function actBtns(o, p) {
   return `<button class="mini retry ic ${conf ? 'confirm' : ''}" data-act="retry" title="${conf ? 'Tap again to queue a run' : 'Queue a run on ' + o + "'s Chrome"}" ${retryOff ? 'disabled' : ''}>${running ? '⏳' : conf ? 'Run?' : 'R'}</button>` +
     (running ? `<button class="mini ic ${cf('stop') ? 'confirm' : ''}" style="background:var(--bad)" data-act="stop" title="Stop this run">${cf('stop') ? 'Stop?' : '■'}</button>` : '') +
     (isBroken(p) ? `<button class="mini okb ic ${cf('markOk') ? 'confirm' : ''}" data-act="markOk" title="Mark OK: claim was fine, cancel the soft-fail retry and reschedule from the last run">${cf('markOk') ? 'OK?' : 'O'}</button>` : '') +
-    ((!running && p.steps && p.rule !== 'manual' && p.rule !== 'notSignedUp') ? `<button class="mini ic ${cf('alreadyRan') ? 'confirm' : ''}" style="background:#1e90ff" data-act="alreadyRan" title="Already ran: push the next run out one interval from now">${cf('alreadyRan') ? 'Ran?' : 'A'}</button>` : '');
+    ((!running && p.steps && p.rule !== 'manual' && p.rule !== 'notSignedUp') ? `<button class="mini ic ${cf('alreadyRan') ? 'confirm' : ''}" style="background:#1e90ff" data-act="alreadyRan" title="Already ran: push the next run out one interval from now">${cf('alreadyRan') ? 'Ran?' : 'A'}</button>` : '') +
+    (p.canBal ? `<button class="mini ic" style="background:#2e86de" data-act="readBalance" ${p.liveReading || running ? 'disabled' : ''} title="Read the current GC / SC balance now (opens the site in its own window on ${o}'s Chrome, no claim; about a minute)">${p.liveReading ? '⏳' : '↻'}</button>` : '');
 }
 function card(o, p) {
   const fn = failNote(p), qn = queuedNote(o, p);
@@ -312,7 +326,7 @@ function card(o, p) {
   <div class="ch"><input type="checkbox" data-act="toggle" ${p.en ? 'checked' : ''} aria-label="On"><b class="cn">${esc(p.n)}</b><span class="cb">${actBtns(o, p)}</span></div>
   <div class="cs"><span class="${stCls(p)}">${esc(stTxt(p))}</span><span class="sub">${esc(qn || lastTxt(p.lastAt))}</span><span class="sub">next: ${esc(nextTxt(p))}</span></div>
   ${fn ? `<div class="cf">⚠ ${esc(fn)}</div>` : ''}
-  <div class="cbal"><span>GC ${b1(p.gc, 0)}</span><span>SC ${b1(p.sc, 2)}</span></div></div>`;
+  <div class="cbal"><span>GC ${b1(p.gc, 0)}${liveLine(p, 'gc')}</span><span>SC ${b1(p.sc, 2)}${liveLine(p, 'sc')}</span></div></div>`;
 }
 function cardsView(o, rows) {
   const f = LS.get('co.filter', 'problems');
@@ -338,8 +352,8 @@ function row(o, p) {
   <td><div style="display:flex;gap:2px"><select style="flex:1;min-width:0" disabled aria-label="Schedule"><option>${p.rule === 'midnight' ? 'Daily' : p.rule === 'manual' ? 'Manual' : 'Interval'}</option></select><input type="number" value="${p.rule === 'midnight' ? p.ord : p.hrs}" disabled style="width:44px;flex:none" aria-label="Order or hours"></div></td>
   <td style="color:var(--soft);white-space:nowrap" title="${esc(nextTxt(p))}"><span class="trunc">${esc(nextTxt(p))}</span></td>
   <td><span class="${stCls(p)} trunc" ${why}>${esc(stTxt(p))}</span><span class="sub trunc">${esc(qn || lastTxt(p.lastAt))}</span></td>
-  <td class="bal num">${bal(p.gc, 0)}</td>
-  <td class="bal num">${bal(p.sc, 2)}</td>
+  <td class="bal num">${bal(p.gc, 0)}${liveLine(p, 'gc')}</td>
+  <td class="bal num">${bal(p.sc, 2)}${liveLine(p, 'sc')}</td>
   <td class="notecell" title="${esc((fn ? fn + (p.notes ? '\n\n' : '') : '') + (p.notes || ''))}">${fn ? `<span class="failnote">⚠ ${esc(fn)}</span>` : ''}<span class="sub trunc">${esc(p.notes)}</span></td></tr>`;
 }
 function table(o, list) {
@@ -372,6 +386,7 @@ function render() {
   const o = cur, s = state[o], rows = ownerRows[o], d = s && s.doc;
   const cnt = k => rows.filter(p => p.en && p.steps && k.test(p.st)).length;
   $('sum').innerHTML = d ? `<span><b>${rows.filter(p => p.en && p.steps).length}</b> active</span><span><b>${cnt(/^Success|^Marked/)}</b> ok</span><span><b>${cnt(/^(Not Ready|No Reward)/)}</b> waiting</span><span style="color:var(--bad)"><b>${rows.filter(isBroken).length}</b> need attention</span><span>engine ${esc(d.engine)}${d.automatorEnabled === false ? ' · <b style="color:var(--bad)">automator OFF</b>' : ''}</span>` : '';
+  $('pgver').textContent = 'page ' + PAGE_VERSION + (d && d.engine ? ' · ' + cur + ' engine ' + d.engine : '') + ' · ';
   $('refreshed').textContent = (progress ? progress + ' · ' : '') + (lastRefresh ? 'refreshed ' + dt(lastRefresh, { hour: 'numeric', minute: '2-digit' }) : '');
   let notes = '';
   if (s && s.err) notes += `<div class="err"><b>${o}:</b> ${esc(s.err)}${d ? ' Showing the last copy we saw.' : ''}</div>`;
@@ -423,7 +438,7 @@ async function queueAction(o, p, action) {
   const fn = 'run-' + stamp.replace(/[:.]/g, '-') + '-' + safe + '~' + action + '.json';
   await g('/me/drive/root:' + enc(base + '/' + fn) + ':/content?@microsoft.graph.conflictBehavior=fail', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body, null, 2) });
 }
-const ACT_TXT = { markOk: 'Mark OK', alreadyRan: 'Already ran', stop: 'Stop', enable: 'Turn on', disable: 'Turn off' };
+const ACT_TXT = { readBalance: 'Read balance', markOk: 'Mark OK', alreadyRan: 'Already ran', stop: 'Stop', enable: 'Turn on', disable: 'Turn off' };
 async function sendAction(o, p, action) {
   try { await queueAction(o, p, action); toast(`<b>${ACT_TXT[action]} sent for ${esc(p.n)}</b> to ${o}'s Chrome. It applies within about 30 seconds and the row updates after that.`); }
   catch (err) { toast('<b>Could not send it.</b> ' + esc(describe(err)), 9000); }
@@ -439,6 +454,8 @@ document.addEventListener('click', async e => {
   const fb = e.target.closest('[data-filter]'); if (fb) { LS.set('co.filter', fb.dataset.filter); render(); return; }
   if (e.target.closest('#btn-view')) { LS.set('co.view', viewMode() === 'cards' ? 'table' : 'cards'); render(); window.scrollTo(0, 0); return; }
   const vb = e.target.closest('[data-view]'); if (vb) { LS.set('co.view', vb.dataset.view); render(); window.scrollTo(0, 0); return; }
+  const rb = e.target.closest('[data-act="readBalance"]');
+  if (rb && !rb.disabled) { const id = rb.closest('[data-id]').dataset.id, p = rowsOf(cur).find(x => x.id === id); if (p) await sendAction(cur, p, 'readBalance'); return; }
   const ab = e.target.closest('[data-act="markOk"],[data-act="alreadyRan"],[data-act="stop"]');
   if (ab) {
     const tr = ab.closest('[data-id]'), id = tr.dataset.id, act = ab.dataset.act, key = cur + '|' + id + '|' + act, p = rowsOf(cur).find(x => x.id === id); if (!p) return;
