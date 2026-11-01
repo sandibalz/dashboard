@@ -115,6 +115,10 @@ tr:hover .setrow, .setrow:focus-within { display: flex; }
 #pub .btn { margin: 10px 8px 0 0; padding: 8px 14px; font-size: 14px; } #pub .btn[disabled] { opacity: .5; }
 #pub .st { font-weight: 700; } #pub .st.same { color: var(--good); } #pub .st.diff { color: var(--warn); } #pub .st.bad { color: var(--bad); }
 code.k { background: var(--head); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; font-size: 12px; }
+.fs-wrap { overflow-x: auto; border-radius: 6px; } .fs-table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); }
+.fs-table th { text-align: left; font-size: 10px; color: var(--mute); text-transform: uppercase; letter-spacing: .4px; padding: 4px 8px; background: var(--head); border-bottom: 2px solid var(--line); white-space: nowrap; }
+.fs-table td { padding: 4px 8px; border-bottom: 1px solid var(--line2); font-size: 12px; line-height: 1.25; }
+.fs-table tbody tr:last-child td { border-bottom: none; } .fs-table td.sp { font-weight: 700; white-space: nowrap; } .fs-table td.mu { color: var(--soft); }
 </style>
 </head>
 <body>
@@ -343,6 +347,17 @@ function table(o, list) {
   return `<div class="overview-grid"><table class="overview-table"><colgroup>${cols.map(w => `<col style="width:${w}">`).join('')}</colgroup><thead><tr><th>Open · On</th><th>Profile</th><th>Login · Site</th><th>Schedule · #</th><th>Next Run</th><th>Status · Last Run</th><th class="num">GC (last 3)</th><th class="num">SC (last 3)</th><th>Notes</th></tr></thead><tbody>${list.map(p => row(o, p)).join('')}</tbody></table></div>`;
 }
 
+/* ---------- available free spins (chrome-state "freeSpins": waiting entries only, written by the engine since 2026-10-03e) ---------- */
+function fsBlock(d) {
+  if (!d || !Array.isArray(d.freeSpins)) return '';
+  const list = d.freeSpins.slice().sort((a, b) => (a.site || '').localeCompare(b.site || '') || (b.foundAt || 0) - (a.foundAt || 0));
+  if (!list.length) return `<h2>🎰 Free spins available<span class="sub">none waiting</span></h2>`;
+  const total = list.reduce((n, e) => n + (parseFloat(e.spins) || 0), 0);
+  const found = ts => ts ? dt(ts, { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+  const rows = list.map(e => `<tr><td>${esc((e.profileName || '').replace(/ Free Spins$/i, '') || e.site || '')}</td><td>${esc(e.game || '?')}</td><td class="sp">${esc((e.spins || '?') + (e.coin ? ' ' + e.coin : ''))}</td><td>${esc(e.expires || '')}</td><td class="mu">${esc(e.postedText || '')}</td><td class="mu">${esc(found(e.foundAt))}</td></tr>`).join('');
+  return `<h2>🎰 Free spins available<span class="sub">${list.length} waiting${total ? ' · ' + total + ' spins' : ''}</span></h2><div class="fs-wrap"><table class="fs-table"><thead><tr><th>Site</th><th>Game</th><th>Spins</th><th>Expires</th><th>Posted</th><th>Found</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
 /* ---------- views ---------- */
 function render() {
   if (!started) return;
@@ -363,10 +378,10 @@ function render() {
   if (d) { const up = Date.parse(d.updatedAt), age = Date.now() - up; if (age > 20 * 60000) notes += `<div class="stale-note"><b>${o}'s Chrome last reported ${span(age)} ago</b> (${lastTxt(up)}). Everything below is from then. Their PC or Chrome may be off, and anything you queue waits until it is back.</div>`; }
   $('notes').innerHTML = notes;
   if (!d) { $('out').innerHTML = `<div class="empty">${loading ? 'Loading from OneDrive…' : 'No data for ' + o + ' yet.'}</div>`; return; }
-  if (viewMode() === 'cards') { $('out').innerHTML = cardsView(o, rows); return; }
+  if (viewMode() === 'cards') { $('out').innerHTML = fsBlock(d) + cardsView(o, rows); return; }
   const by = {}; SECTIONS.forEach(x => by[x[0]] = []); rows.forEach(p => by[sectionOf(p)].push(p));
   const cmpName = (a, b) => a.n.localeCompare(b.n, undefined, { sensitivity: 'base' });
-  $('out').innerHTML = SECTIONS.map(([k, title]) => {
+  $('out').innerHTML = fsBlock(d) + SECTIONS.map(([k, title]) => {
     const list = by[k].slice().sort(k === 'inactive' || k === 'freespins' ? (a, b) => (groupRank(a) - groupRank(b)) || cmpName(a, b) : (a, b) => (attentionRank(a) - attentionRank(b)) || (groupRank(a) - groupRank(b)) || cmpName(a, b));
     if (!list.length) return '';
     return `<h2>${title}<span class="sub">${list.length}</span></h2>${table(o, list)}`;
