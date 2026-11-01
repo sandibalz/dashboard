@@ -299,12 +299,13 @@ const coarse = matchMedia('(pointer:coarse)').matches;
 function setBars(hide) { document.body.classList.toggle('hidebars', hide); setTimeout(() => window.dispatchEvent(new Event('resize')), 50); }
 $('#bBars').onclick = () => { barsTouched = true; setBars(!document.body.classList.contains('hidebars')); };
 const CTRL = ['btnDisc', 'bBack', 'bFwd', 'bRel', 'url', 'bGo', 'bNew', 'bClose', 'bPaste', 'bMode', 'bKb', 'tabsel'];
-async function inputStatus() {
+async function inputStatus(tries = 0) {
   const b = $('#bIn'); b.disabled = true; b.classList.remove('on');
   try {
     const st = await rpc('native');
     b.dataset.ok = st.connected ? '1' : '';
-    if (!st.connected) b.textContent = 'Input: Chrome only';
+    if (!st.connected && tries < 8 && cur) { b.textContent = 'Input: checking...'; setTimeout(() => { if (cur) inputStatus(tries + 1); }, 1000); return; }
+    if (!st.connected) { b.textContent = 'Input: Chrome only'; b.title = 'Helper not connected' + (st.err ? ': ' + st.err : ''); dlog('input helper not connected' + (st.err ? ': ' + st.err : '')); }
     else { b.textContent = st.mode === 'chrome' ? 'Input: Chrome tabs' : 'Input: Whole desktop'; b.classList.toggle('on', st.mode !== 'chrome'); b.disabled = false; b.dataset.mode = st.mode; }
   } catch { b.textContent = 'Input: Chrome only'; b.dataset.ok = ''; }
 }
