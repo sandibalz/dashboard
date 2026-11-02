@@ -169,6 +169,7 @@ footer p{margin:0 0 8px}
 <header id="bar"><div class="wrap" id="barin"></div></header>
 <main class="wrap" id="app"></main>
 <input class="sr" type="file" id="file" accept=".zip,.xml,.json" tabindex="-1" aria-hidden="true">
+<input class="sr" type="file" id="zipfile" accept=".zip" tabindex="-1" aria-hidden="true">
 <div id="tip" role="tooltip"></div>
 
 <script>
@@ -458,7 +459,7 @@ function finalize(A, sourceName) {
   const keys = Object.keys(daily).filter(d => d >= '2010').sort();
   let last = keys[keys.length - 1]; if (A.exportDate && A.exportDate < last) last = A.exportDate;
   let lastAct = null; for (let i = keys.length - 1; i >= 0; i--) { const x = daily[keys[i]]; if (x.moveGoal > 0 && keys[i] <= last) { lastAct = keys[i]; break; } }
-  return {v: 1, source: sourceName, built: new Date().toISOString().slice(0, 10), exportDate: A.exportDate,
+  return {v: 1, source: sourceName, built: new Date().toISOString().slice(0, 10), builtAt: new Date().toISOString(), exportDate: A.exportDate,
     first: keys[0], last, lastAct: lastAct || last, records: A.records, daily, workouts, weights};
 }
 
@@ -484,7 +485,7 @@ async function loadAny(file, onProgress) {
    Opened as a file on your computer: the summary is kept in this browser.
    Served over https (GitHub Pages): nothing is kept in the browser. The summary lives in your
    OneDrive behind the Microsoft sign-in (section 4b), the same way the Collector Overview page works. */
-const PAGE_VERSION = '2026-11-01b';                       // bump on every change, same habit as the Overview page; shown next to the title
+const PAGE_VERSION = '2026-11-01c';                       // bump on every change, same habit as the Overview page; shown next to the title
 const CLOUD = location.protocol === 'https:';
 const KEY = 'healthlog.summary.v1';
 const Store = {
@@ -535,12 +536,60 @@ async function cloudPull() {
   if (!m || m.v !== 1 || !m.daily || !m.first) throw new Error('The file in OneDrive is not a Health log summary.');
   return m;
 }
+const HL = 'Documents/health-log';                                   // OneDrive folder; the PC watcher uses the same one
+const odPath = rel => '/me/drive/root:/' + (HL + '/' + rel).split('/').map(encodeURIComponent).join('/');
+const stampNow = () => { const d = new Date(), p = n => String(n).padStart(2, '0'); return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds()); };
+const putJson = async (rel, body) => { const r = await graph(odPath(rel) + ':/content?@microsoft.graph.conflictBehavior=replace', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body}); if (!r.ok) throw new Error('OneDrive answered ' + r.status + ' while saving ' + rel + '.'); };
 async function cloudPush(m) {
-  const body = JSON.stringify(m);
-  const r = await graph(ITEM + ':/content?@microsoft.graph.conflictBehavior=replace', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body});
-  if (!r.ok) throw new Error('OneDrive answered ' + r.status + '.');
+  const body = JSON.stringify(m), st = stampNow();
+  // Nothing is ever lost: the summary being replaced is copied to snapshots/ first, and every new one is kept there too.
+  const old = await graph(ITEM + ':/content');
+  if (old.ok) { const t = await old.text(); if (t && t !== body) await putJson('snapshots/summary-' + st + '-before.json', t); }
+  else if (old.status !== 404) throw new Error('OneDrive answered ' + old.status + '.');
+  await putJson('snapshots/summary-' + st + '.json', body);
+  await putJson('health-summary.json', body);
   return body.length;
 }
+/* zip -> OneDrive inbox (the PC watcher turns it into the summary). Chunked upload session; the page never reads the zip. */
+const CHUNK = 32 * 327680;                                            // 10 MiB; Graph needs multiples of 320 KiB
+async function uploadExport(file) {
+  const name = 'export-' + stampNow() + '.zip', say = t => setNote(t);
+  say('Preparing OneDrive folder…');
+  try { await graph('/me/drive/root:/' + HL.split('/').map(encodeURIComponent).join('/') + ':/children', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: 'inbox', folder: {}, '@microsoft.graph.conflictBehavior': 'fail'})}); } catch (e) { if (e.signin) throw e; }   // 409 = already there
+  const r = await graph(odPath('inbox/' + name) + ':/createUploadSession', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({item: {'@microsoft.graph.conflictBehavior': 'rename'}})});
+  if (!r.ok) throw new Error('OneDrive would not start the upload (' + r.status + ').');
+  const url = (await r.json()).uploadUrl; if (!url) throw new Error('OneDrive did not return an upload address.');
+  for (let a = 0; a < file.size; a += CHUNK) {
+    const b = Math.min(a + CHUNK, file.size), part = file.slice(a, b);
+    for (let tries = 1; ; tries++) {
+      try {
+        const u = await fetch(url, {method: 'PUT', headers: {'Content-Range': `bytes ${a}-${b - 1}/${file.size}`}, body: part});
+        if (u.status === 200 || u.status === 201 || u.status === 202) break;
+        throw new Error('OneDrive answered ' + u.status + '.');
+      } catch (e) { if (tries >= 3) throw e; await new Promise(res => setTimeout(res, 1500 * tries)); }
+    }
+    say(`Sending ${name} to OneDrive: ${Math.round(b / file.size * 100)}% (${(b / 1048576).toFixed(0)} of ${(file.size / 1048576).toFixed(0)} MB). Keep this tab open.`);
+  }
+  return name;
+}
+async function sendExport(file) {
+  if (!file || !account) return;
+  if (!/\.zip$/i.test(file.name)) { setNote('That is not a .zip. Choose export.zip from the Health app.'); return; }
+  S.cloud.busyUp = true;
+  try {
+    const n = await uploadExport(file);
+    setNote(`Sent ${n} to OneDrive. Your PC turns it into the dashboard within about 10 minutes (the zip is kept as a backup). Then press Refresh.`);
+  } catch (e) { setNote('Could not send the zip: ' + (e.signin ? 'sign in again and retry.' : e.message)); if (e.signin) account = null; }
+  S.cloud.busyUp = false;
+}
+async function watcherStatus() {                                      // optional line from the PC watcher
+  try {
+    const r = await graph(odPath('watcher-status.json') + ':/content'); if (!r.ok) return '';
+    const w = await r.json(), when = w.at ? new Date(w.at).toLocaleString(undefined, {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'}) : '';
+    return w.state === 'ok' ? `PC watcher: processed ${w.file} on ${when} (${w.days} days).` : w.state === 'working' ? `PC watcher: working on ${w.file} (started ${when}).` : w.state === 'error' ? `PC watcher problem (${when}): ${w.error || 'unknown'}.` : '';
+  } catch (e) { return ''; }
+}
+function setNote(t) { S.cloud.note = t; const el = $('#status'); if (el) el.textContent = t; else render(); }
 async function signIn() {
   S.cloud.msg = '';
   try { await pca.loginRedirect({scopes: SCOPES, redirectUri: REDIRECT}); }
@@ -554,6 +603,7 @@ async function pullAndShow() {
   S.cloud.status = 'loading'; S.error = null; if (!M) render();
   try {
     const m = await cloudPull();
+    S.cloud.watch = await watcherStatus();
     if (m) { M = S.model = m; S.day = m.lastAct || m.last; S.cloud.status = 'ready'; S.cloud.note = ''; }
     else { S.cloud.status = M ? 'ready' : 'nofile'; }
   } catch (e) {
@@ -573,7 +623,7 @@ async function cloudSaveFlow() {
   }
   render();
 }
-const noteHTML = () => S.cloud.note ? `<p class="status" id="status" role="status">${esc(S.cloud.note)}</p>` : '';
+const noteHTML = () => S.cloud.note ? `<p class="status" id="status" role="status">${esc(S.cloud.note)}</p>` + (S.cloud.watch ? `<p class="meta">${esc(S.cloud.watch)}</p>` : '') : (S.cloud.watch ? `<p class="status" id="status" role="status">${esc(S.cloud.watch)}</p>` : '');
 const HOW = `<ol class="how"><li><b>Open Health</b> on your iPhone and tap your picture at the top right.</li><li>Tap <b>Export All Health Data</b>, then <b>Export</b>. Large exports take a few minutes to prepare.</li><li><b>Send export.zip to this computer</b> (AirDrop, Files, email or cloud drive) and open it here.</li></ol>`;
 function emptyHTML() {
   const err = S.error ? `<p class="err">${esc(S.error)}</p>` : '';
@@ -1269,6 +1319,7 @@ function barHTML() {
     <span class="seg" role="group" aria-label="Distance unit"><button data-act="unit" data-v="mi" aria-pressed="${S.unit === 'mi'}">mi</button><button data-act="unit" data-v="km" aria-pressed="${S.unit === 'km'}">km</button></span>` : ''}
     <button class="btn" data-act="theme" aria-label="Switch light and dark">Theme</button>
     ${CLOUD && account ? `<button class="btn" data-act="refresh">Refresh</button>` : ''}
+    ${CLOUD && account ? `<button class="btn" data-act="sendzip">Send export to OneDrive</button>` : ''}
     ${hasM && CLOUD && account ? `<button class="btn" data-act="cloudsave">Save to OneDrive</button>` : ''}
     ${hasM ? `<button class="btn" data-act="save">Download summary</button>` : ''}
     ${CLOUD && !account ? (S.cloud.status === 'loading' ? '' : `<button class="btn solid" data-act="signin">Sign in with Microsoft</button>`) : `<button class="btn solid" data-act="open">${hasM ? 'Open another file' : 'Open file'}</button>`}
@@ -1284,7 +1335,7 @@ function render() {
       <div class="meter"><i style="width:${pct}%"></i></div><p class="meta" id="prog">${prog(b)}</p></div>`;
     return;
   }
-  if (!M) { app.innerHTML = emptyHTML(); return; }
+  if (!M) { app.innerHTML = (S.cloud.status === 'ready' || S.cloud.status === 'nofile' ? noteHTML() : '') + emptyHTML(); return; }
   const {html, pend} = page();
   app.innerHTML = noteHTML() + html;
   for (const [id, cfg] of pend) mount(id, cfg);
@@ -1339,6 +1390,7 @@ document.addEventListener('click', ev => {
     case 'signout': signOut(); break;
     case 'refresh': pullAndShow(); break;
     case 'cloudsave': cloudSaveFlow(); break;
+    case 'sendzip': if (S.cloud.busyUp) break; $('#zipfile').value = ''; $('#zipfile').click(); break;
     case 'theme': { const dark = matchMedia('(prefers-color-scheme: dark)').matches; const cur = document.documentElement.dataset.theme || (dark ? 'dark' : 'light'); const nx = cur === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = nx; Store.pref('theme', nx); render(); break; }
     case 'range': S.range = v; S.shown = 25; render(); break;
     case 'unit': S.unit = v; Store.pref('unit', v); render(); break;
@@ -1351,6 +1403,7 @@ document.addEventListener('click', ev => {
   }
 });
 document.addEventListener('change', ev => {
+  if (ev.target.id === 'zipfile') { sendExport(ev.target.files[0]); return; }
   if (ev.target.id === 'file') return openFile(ev.target.files[0]);
   if (ev.target.id === 'daypick' && ev.target.value) setDay(ev.target.value);
   if (ev.target.id === 'hmyear') { S.year = ev.target.value; mountHeatmap(); }
