@@ -151,6 +151,8 @@ select.in{background:var(--bg)}
 .favchip button{border:0;background:none;padding:4px 10px;font-size:13px;color:var(--ink2)}
 .favchip button:hover{color:var(--ink)}
 tfoot td{font-weight:600;border-bottom:0}
+.badge{display:inline-block;border:1px solid var(--c-ex);color:var(--c-ex);border-radius:999px;padding:0 8px;font-size:12px;font-weight:600}
+.ver{color:var(--ink3);font-size:12px;white-space:nowrap}
 .who{color:var(--ink2);font-size:13px;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .status{margin:16px 0 0;padding:8px 12px;border:1px solid var(--rule);border-radius:8px;color:var(--ink2);font-size:13px}
 footer{border-top:1px solid var(--rule);margin-top:40px;padding:22px 0 60px;color:var(--ink3);font-size:12.5px;max-width:78ch}
@@ -482,6 +484,7 @@ async function loadAny(file, onProgress) {
    Opened as a file on your computer: the summary is kept in this browser.
    Served over https (GitHub Pages): nothing is kept in the browser. The summary lives in your
    OneDrive behind the Microsoft sign-in (section 4b), the same way the Collector Overview page works. */
+const PAGE_VERSION = '2026-11-01b';                       // bump on every change, same habit as the Overview page; shown next to the title
 const CLOUD = location.protocol === 'https:';
 const KEY = 'healthlog.summary.v1';
 const Store = {
@@ -861,6 +864,25 @@ function typeOrder() {
   const t = {}; for (const w of M.workouts) t[w.t] = (t[w.t] || 0) + w.min;
   return Object.keys(t).sort((p, q) => t[q] - t[p]);
 }
+const EX_MIN = 30;                                        // Apple's daily Exercise goal; a day at or over it with no logged workout is flagged
+function daysHTML(a, b) {
+  const all = listDays(a, b).reverse(), byDay = {};
+  for (const w of M.workouts) if (w.d >= a && w.d <= b) (byDay[w.d] = byDay[w.d] || []).push(w);
+  const body = all.slice(0, S.shown).map(d => {
+    const x = M.daily[d] || {}, ws = byDay[d] || [], ex = x.ex;
+    const what = ws.length ? ws.map(w => `${esc(prettyType(w.t))} ${fmtDur(w.min)}`).join('<br>')
+      : ex >= EX_MIN ? `<span class="badge" title="${ex} exercise minutes, not logged as a workout">Active day</span>` : '<small style="display:inline;color:var(--ink3)">–</small>';
+    return `<tr><td>${fmtDate(d, {weekday: 'short', month: 'short', day: 'numeric'})}</td><td>${what}</td><td class="num">${ex != null ? n0(ex) + ' min' : '–'}</td><td class="num">${x.dist != null ? n1(dist(x.dist)) + ' ' + dU() : '–'}</td><td class="num">${x.steps != null ? n0(x.steps) : '–'}</td><td class="num">${x.move != null ? n0(x.move) : '–'}</td></tr>`;
+  }).join('');
+  return `<p class="meta" style="margin:0 0 10px">Every day in the range. Exercise minutes are Apple’s Exercise ring. A day with ${EX_MIN}+ minutes and no logged workout is marked Active day. Distance and steps are for the whole day, not one session.</p>
+  <div class="tablewrap"><table><thead><tr><th>Date</th><th>Workout</th><th class="num">Exercise</th><th class="num">Distance</th><th class="num">Steps</th><th class="num">Active Cal</th></tr></thead><tbody>${body}</tbody></table></div>
+  ${all.length > S.shown ? `<p class="more"><button class="btn" data-act="more">Show more (${all.length - S.shown} left)</button></p>` : ''}`;
+}
+function wkViewHTML(a, b) {
+  const v = S.wview === 'days' ? 'days' : 'workouts';
+  const tog = `<div class="seg" role="group" aria-label="Workouts view" style="margin:0 0 14px"><button data-act="wview" data-v="workouts" aria-pressed="${v === 'workouts'}">Logged workouts</button><button data-act="wview" data-v="days" aria-pressed="${v === 'days'}">Every day</button></div>`;
+  return tog + (v === 'days' ? daysHTML(a, b) : workoutsHTML(a, b));
+}
 function workoutsHTML(a, b) {
   const inR = M.workouts.filter(w => w.d >= a && w.d <= b);
   if (!M.workouts.length) return '<div class="note">No workouts in this export.</div>';
@@ -895,6 +917,7 @@ const timeFor = (day, meal) => day === today() ? nowHM() : MEAL_T[meal];
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const rnd = (x, d = 0) => { const k = 10 ** d; return Math.round((+x || 0) * k) / k; };
 const favKey = f => (f.name + '|' + f.kcal).toLowerCase();
+const memo = new Map();                                    // search/portion answers kept for this visit, so repeats cost no request
 S.food = {day: today(), results: null, busy: false, err: '', keyHint: false, pick: null, manual: false, save: '', tm: 0};
 
 const normalizeF = j => { const a = x => Array.isArray(x) ? x : []; return {v: 1, entries: a(j && j.entries), favs: a(j && j.favs), tomb: a(j && j.tomb), favTomb: a(j && j.favTomb)}; };
@@ -986,7 +1009,16 @@ function resHTML() {
   if (fs.results && fs.results.length) h += `<ul class="res">${fs.results.map((it, i) => `<li><button data-fa="pick" data-i="${i}"><span>${esc(it.name)}${it.brand ? `<small> · ${esc(it.brand)}</small>` : ''}<small> · ${it.src}</small></span><span class="rk">${rnd(it.per100.kcal)} Cal / 100 g</span></button></li>`).join('')}</ul>`;
   return h;
 }
-const favsHTML = () => F.favs.length ? `<div class="favs"><span class="meta">Favorites</span>${F.favs.map((f, i) => `<span class="favchip"><button data-fa="favadd" data-i="${i}" title="${esc(f.amt || '')}">${esc(f.name)} · ${n0(f.kcal)}</button><button data-fa="favdel" data-i="${i}" aria-label="Remove ${esc(f.name)} from favorites">×</button></span>`).join('')}</div>` : '';
+function recents() {                                       // foods you logged lately that are not already favorites
+  const seen = new Set(F.favs.map(favKey)), out = [];
+  for (const e of F.entries.slice().sort((p, q) => (p.d + p.t < q.d + q.t ? 1 : -1))) {
+    const k = favKey(e); if (seen.has(k)) continue; seen.add(k); out.push(e); if (out.length >= 10) break;
+  }
+  return out;
+}
+const keyHTML = () => Store.pref('fdcKey') ? `<p class="meta">USDA key saved on this device (1,000 searches an hour). <button class="lnk" data-fa="fdckey">Change</button></p>` : `<p class="meta">Using the shared USDA demo limit (30 searches an hour). <button class="lnk" data-fa="fdckey">Add your free USDA key</button> for 1,000.</p>`;
+const recentHTML = () => { const r = recents(); return r.length ? `<div class="favs"><span class="meta">Recent</span>${r.map((e, i) => `<span class="favchip"><button data-fa="recadd" data-i="${i}" title="${esc(e.amt || '')}">${esc(e.name)} · ${n0(e.kcal)}</button></span>`).join('')}</div>` : ''; };
+const favsHTML = () => (F.favs.length ? `<div class="favs"><span class="meta">Favorites</span>${F.favs.map((f, i) => `<span class="favchip"><button data-fa="favadd" data-i="${i}" title="${esc(f.amt || '')}">${esc(f.name)} · ${n0(f.kcal)}</button><button data-fa="favdel" data-i="${i}" aria-label="Remove ${esc(f.name)} from favorites">×</button></span>`).join('')}</div>` : '') + recentHTML() + keyHTML();
 
 function foodPaintAll() {
   const h = $('#foodhost'); if (!h || !M) return;
@@ -1040,7 +1072,8 @@ function offItem(p) {
 async function foodSearch(q) {
   const fs = S.food; if (!q) return;
   Object.assign(fs, {busy: true, err: '', keyHint: false, manual: false, pick: null, results: null}); foodPaintRes();
-  const key = Store.pref('fdcKey') || 'DEMO_KEY', e = encodeURIComponent;
+  const key = Store.pref('fdcKey') || 'DEMO_KEY', e = encodeURIComponent, ck = q.toLowerCase() + '|' + (key === 'DEMO_KEY' ? 0 : 1);
+  if (memo.has(ck)) { fs.results = memo.get(ck); fs.busy = false; fs.err = ''; return foodPaintRes(); }
   const [u, o] = await Promise.allSettled([
     fetchJson(`https://api.nal.usda.gov/fdc/v1/foods/search?query=${e(q)}&pageSize=8&dataType=${e('Foundation,SR Legacy,Survey (FNDDS)')}&api_key=${e(key)}`),
     fetchJson(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${e(q)}&search_simple=1&action=process&json=1&page_size=8&fields=${e('code,product_name,brands,serving_size,serving_quantity,nutriments')}`)
@@ -1048,14 +1081,16 @@ async function foodSearch(q) {
   const items = [], errs = [];
   if (u.status === 'fulfilled') items.push(...(u.value.foods || []).map(usdaItem).filter(Boolean)); else { errs.push('USDA ' + u.reason.message); fs.keyHint = u.reason.message === 'limit reached'; }
   if (o.status === 'fulfilled') items.push(...(o.value.products || []).map(offItem).filter(Boolean)); else errs.push('Open Food Facts ' + o.reason.message);
-  fs.results = items; fs.busy = false;
+  fs.results = items; fs.busy = false; if (items.length && !errs.length) memo.set(ck, items);
   fs.err = !items.length ? (errs.length ? `Food search is not available right now (${errs.join('; ')}). Enter calories yourself instead.` : `No matches for “${q}”. Try a simpler word, or enter calories yourself.`)
     : errs.length ? `Some results are missing (${errs.join('; ')}).` : '';
   foodPaintRes();
 }
 async function loadPortions(item) {
   try {
-    const j = await fetchJson(`https://api.nal.usda.gov/fdc/v1/food/${item.fdc}?api_key=${encodeURIComponent(Store.pref('fdcKey') || 'DEMO_KEY')}`);
+    const pk0 = 'p' + item.fdc;
+    const j = memo.get(pk0) || await fetchJson(`https://api.nal.usda.gov/fdc/v1/food/${item.fdc}?api_key=${encodeURIComponent(Store.pref('fdcKey') || 'DEMO_KEY')}`);
+    memo.set(pk0, j);
     const seen = new Set(), ps = [];
     for (const p of j.foodPortions || []) {
       if (!(p.gramWeight > 0)) continue;
@@ -1094,7 +1129,7 @@ function pickCalc(touch = true) {
   const v = pickValues(p), el = $('#pickcalc');
   if (el) el.textContent = `${rnd(v.g)} g · ${rnd(v.kcal)} Cal · protein ${rnd(v.p, 1)} g · carbs ${rnd(v.c, 1)} g · fat ${rnd(v.f, 1)} g`;
 }
-function addEntry(e) { F.entries.push(e); foodPaintDay(); foodDirty(); }
+function addEntry(e) { F.entries.push(e); foodPaintDay(); foodPaintFavs(); foodDirty(); }
 function addFromPick() {
   const p = readPick(); if (!p || !(p.qty > 0)) return;
   const v = pickValues(p), it = p.item, day = S.food.day;
@@ -1127,8 +1162,9 @@ function foodAct(a, ds) {
     case 'del': F.entries = F.entries.filter(e => e.id !== ds.id); F.tomb.push(ds.id); foodPaintDay(); return foodDirty();
     case 'fav': { const e = F.entries.find(x => x.id === ds.id); if (e) addFav(e); return; }
     case 'favadd': { const f = F.favs[+ds.i]; if (!f) return; const t = timeFor(fs.day, mealFor(nowHM())), meal = fs.day === today() ? mealFor(t) : mealFor(MEAL_T.Lunch); return addEntry({id: uid(), d: fs.day, t, meal, name: f.name, amt: f.amt, kcal: f.kcal, p: f.p, c: f.c, f: f.f, src: 'favorite'}); }
+    case 'recadd': { const f = recents()[+ds.i]; if (!f) return; const t = timeFor(fs.day, mealFor(nowHM())), meal = fs.day === today() ? mealFor(t) : mealFor(MEAL_T.Lunch); return addEntry({id: uid(), d: fs.day, t, meal, name: f.name, amt: f.amt, kcal: f.kcal, p: f.p, c: f.c, f: f.f, src: 'recent'}); }
     case 'favdel': { const f = F.favs[+ds.i]; if (!f) return; F.favs.splice(+ds.i, 1); F.favTomb.push(f.id); foodPaintFavs(); return foodDirty(); }
-    case 'fdckey': { const k = window.prompt('Paste your free USDA FoodData Central API key (sign up at fdc.nal.usda.gov/api-key-signup):'); if (k && k.trim()) { Store.pref('fdcKey', k.trim()); fs.keyHint = false; fs.err = 'Key saved. Search again.'; foodPaintRes(); } return; }
+    case 'fdckey': { const k = window.prompt('Paste your free USDA FoodData Central API key (sign up at fdc.nal.usda.gov/api-key-signup):'); if (k && k.trim()) { Store.pref('fdcKey', k.trim()); fs.keyHint = false; fs.err = 'Key saved. Search again.'; memo.clear(); foodPaintRes(); foodPaintFavs(); } return; }
   }
 }
 document.addEventListener('click', ev => { const t = ev.target.closest('[data-fa]'); if (t) foodAct(t.dataset.fa, t.dataset); });
@@ -1209,7 +1245,7 @@ function page() {
   <section aria-labelledby="h-wk"><h2 id="h-wk">Workouts</h2>
     <p class="lede">${n0(inR.length)} in this range. Click a column heading to sort.</p>
     ${wser.length ? `<div style="margin-bottom:26px">${blk('c-wk', 'Minutes per ' + (gran === 'day' ? 'day' : gran))}</div>` : ''}
-    <div id="wkhost">${workoutsHTML(a, b)}</div></section>
+    <div id="wkhost">${wkViewHTML(a, b)}</div></section>
 
   <section aria-labelledby="h-food"><h2 id="h-food">Food</h2>
     <p class="lede">Log what you eat and compare it with what your watch says you burned. Calories burned = resting + active. Your food log is stored separately from the Health import.</p>
@@ -1228,7 +1264,7 @@ function page() {
 function barHTML() {
   const rb = (v, l) => `<button data-act="range" data-v="${v}" aria-pressed="${S.range === v}">${l}</button>`;
   const hasM = !!M;
-  $('#barin').innerHTML = `<span class="brand">Health log</span>
+  $('#barin').innerHTML = `<span class="brand">Health log</span><span class="ver" title="Page version">page ${PAGE_VERSION}</span>
     ${hasM ? `<span class="seg" role="group" aria-label="Date range">${rb('30', '30 days')}${rb('90', '90 days')}${rb('365', '1 year')}${rb('1095', '3 years')}${rb('all', 'All')}</span>
     <span class="seg" role="group" aria-label="Distance unit"><button data-act="unit" data-v="mi" aria-pressed="${S.unit === 'mi'}">mi</button><button data-act="unit" data-v="km" aria-pressed="${S.unit === 'km'}">km</button></span>` : ''}
     <button class="btn" data-act="theme" aria-label="Switch light and dark">Theme</button>
@@ -1308,9 +1344,10 @@ document.addEventListener('click', ev => {
     case 'unit': S.unit = v; Store.pref('unit', v); render(); break;
     case 'tbl': { const id = t.dataset.id; S.tbl[id] = !S.tbl[id]; const c = charts.find(x => x.id === id); t.textContent = S.tbl[id] ? 'Chart' : 'Table'; if (c) drawChart(id, c.cfg); break; }
     case 'day': setDay(t.dataset.n === 'latest' ? (M.lastAct || M.last) : addDays(S.day, +t.dataset.n)); break;
-    case 'type': S.type = t.dataset.t; S.shown = 25; { const [a, b] = range(); $('#wkhost').innerHTML = workoutsHTML(a, b); } break;
-    case 'sort': { const k = t.dataset.k; S.sort = S.sort.k === k ? {k, dir: -S.sort.dir} : {k, dir: k === 's' || k === 't' ? (k === 't' ? 1 : -1) : -1}; { const [a, b] = range(); $('#wkhost').innerHTML = workoutsHTML(a, b); } break; }
-    case 'more': S.shown += 50; { const [a, b] = range(); $('#wkhost').innerHTML = workoutsHTML(a, b); } break;
+    case 'wview': S.wview = v; S.shown = 25; { const [a, b] = range(); $('#wkhost').innerHTML = wkViewHTML(a, b); } break;
+    case 'type': S.type = t.dataset.t; S.shown = 25; { const [a, b] = range(); $('#wkhost').innerHTML = wkViewHTML(a, b); } break;
+    case 'sort': { const k = t.dataset.k; S.sort = S.sort.k === k ? {k, dir: -S.sort.dir} : {k, dir: k === 's' || k === 't' ? (k === 't' ? 1 : -1) : -1}; { const [a, b] = range(); $('#wkhost').innerHTML = wkViewHTML(a, b); } break; }
+    case 'more': S.shown += 50; { const [a, b] = range(); $('#wkhost').innerHTML = wkViewHTML(a, b); } break;
   }
 });
 document.addEventListener('change', ev => {
