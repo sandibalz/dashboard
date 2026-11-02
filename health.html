@@ -517,7 +517,7 @@ async function loadAny(file, onProgress) {
    Opened as a file on your computer: the summary is kept in this browser.
    Served over https (GitHub Pages): nothing is kept in the browser. The summary lives in your
    OneDrive behind the Microsoft sign-in (section 4b), the same way the Collector Overview page works. */
-const PAGE_VERSION = '2026-11-02b';                       // bump on every change, same habit as the Overview page; shown next to the title
+const PAGE_VERSION = '2026-11-02c';                       // bump on every change, same habit as the Overview page; shown next to the title
 const CLOUD = location.protocol === 'https:';
 const KEY = 'healthlog.summary.v1';
 const Store = {
@@ -1593,7 +1593,7 @@ function favScreen() {
   app.innerHTML = `<section class="first"><p style="margin:0 0 6px"><a href="#">← Back to Health log</a></p><h2>Favorites</h2>
     <p class="lede">Tap Edit to change one, or build a new one. Favorites show as one-tap chips in the Food section.</p>
     <div id="favlist"></div><div style="height:22px"></div><div id="favbuild"></div>
-    <div class="foodadd"><form id="foodform" class="frow"><input id="foodq" class="in" type="search" placeholder="${dr ? 'Search a food to add to this meal' : 'Search a food to save as a favorite'}" aria-label="Search foods" autocomplete="off"><button class="btn solid" type="submit">Search</button></form><div id="foodres"></div></div>
+    <div class="foodadd"><form id="foodform" class="frow"><input id="foodq" class="in" type="search" placeholder="${dr ? 'Search a food to add to this meal' : 'Search a food to save as a favorite'}" aria-label="Search foods" autocomplete="off"><button class="btn solid" type="submit">Search</button><button class="btn" type="button" data-fa="scan">Scan barcode</button></form><div id="foodres"></div></div>
     <p class="meta" id="foodstat" role="status">${esc(S.food.save || '')}</p>${keyHTML()}</section>`;
   favListPaint(); favBuildPaint(); foodPaintRes();
 }
