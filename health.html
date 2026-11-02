@@ -517,7 +517,7 @@ async function loadAny(file, onProgress) {
    Opened as a file on your computer: the summary is kept in this browser.
    Served over https (GitHub Pages): nothing is kept in the browser. The summary lives in your
    OneDrive behind the Microsoft sign-in (section 4b), the same way the Collector Overview page works. */
-const PAGE_VERSION = '2026-11-02a';                       // bump on every change, same habit as the Overview page; shown next to the title
+const PAGE_VERSION = '2026-11-02b';                       // bump on every change, same habit as the Overview page; shown next to the title
 const CLOUD = location.protocol === 'https:';
 const KEY = 'healthlog.summary.v1';
 const Store = {
@@ -1176,22 +1176,32 @@ function offItem(p) {
 }
 /* barcode: typed digits (8-14) or camera scan. Open Food Facts by code + USDA Branded (gtinUpc) in parallel. */
 const stripZ = c => String(c || '').replace(/^0+/, '');
+const upcChk = d => { let t = 0; for (let i = 0; i < d.length; i++) t += +d[d.length - 1 - i] * (i % 2 === 0 ? 3 : 1); return (10 - t % 10) % 10; };   // check digit for the digits before it (works for UPC-A 11 digits and EAN-13 12 digits)
+function barcodeCands(code) {                        // typed codes often lack the first (0) and/or last (check) digit of the 12-digit UPC-A
+  const out = [];
+  if (code.length === 10) out.push('0' + code + upcChk('0' + code));
+  if (code.length === 11) out.push(code + upcChk(code), '0' + code);
+  out.push(code);
+  return [...new Set(out)];
+}
 async function barcodeLookup(code) {
   const fs = S.food;
   Object.assign(fs, {busy: true, err: '', keyHint: false, manual: false, pick: null, results: null}); foodPaintRes();
   const key = fdcKey() || 'DEMO_KEY', e = encodeURIComponent, ck = 'bc|' + code + '|' + (key === 'DEMO_KEY' ? 0 : 1);
   if (memo.has(ck)) { fs.results = memo.get(ck); fs.busy = false; return foodPaintRes(); }
+  const cands = barcodeCands(code), zs = new Set(cands.map(stripZ));
+  const offFields = e('code,product_name,brands,serving_size,serving_quantity,nutriments');
   const [o, u] = await Promise.allSettled([
-    fetchJson(`https://world.openfoodfacts.org/api/v2/product/${e(code)}.json?fields=${e('code,product_name,brands,serving_size,serving_quantity,nutriments')}`),
-    fetchJson(`https://api.nal.usda.gov/fdc/v1/foods/search?query=${e(code)}&pageSize=10&dataType=Branded&api_key=${e(key)}`)
+    Promise.all(cands.map(c => fetchJson(`https://world.openfoodfacts.org/api/v2/product/${e(c)}.json?fields=${offFields}`).catch(x => /status 404/.test(x.message) ? null : Promise.reject(x)))),
+    fetchJson(`https://api.nal.usda.gov/fdc/v1/foods/search?query=${e(cands[0])}&pageSize=10&dataType=Branded&api_key=${e(key)}`)
   ]);
   const items = [], errs = [];
-  if (o.status === 'fulfilled') { const it = o.value && o.value.status === 1 && o.value.product ? offItem(o.value.product) : null; if (it) items.push(it); }
-  else if (!/status 404/.test(o.reason.message)) errs.push('Open Food Facts ' + o.reason.message);
-  if (u.status === 'fulfilled') items.push(...(u.value.foods || []).filter(f => stripZ(f.gtinUpc) === stripZ(code)).map(usdaItem).filter(Boolean));
+  if (o.status === 'fulfilled') { for (const v of o.value) { const it = v && v.status === 1 && v.product ? offItem(v.product) : null; if (it && !items.some(z => z.name === it.name)) items.push(it); } }
+  else errs.push('Open Food Facts ' + o.reason.message);
+  if (u.status === 'fulfilled') items.push(...(u.value.foods || []).filter(f => zs.has(stripZ(f.gtinUpc))).map(usdaItem).filter(Boolean));
   else { errs.push('USDA ' + u.reason.message); fs.keyHint = u.reason.message === 'limit reached'; }
   fs.results = items; fs.busy = false; if (items.length && !errs.length) memo.set(ck, items);
-  fs.err = !items.length ? (errs.length ? `Barcode lookup is not available right now (${errs.join('; ')}).` : `No product found for barcode ${code}. Try the name instead, or enter calories yourself.`)
+  fs.err = !items.length ? (errs.length ? `Barcode lookup is not available right now (${errs.join('; ')}).` : `No product found for barcode ${cands.length > 1 ? cands.join(' / ') : code}. Use all digits printed under the bars (usually 12), or search by name, or enter calories yourself.`)
     : errs.length ? `Some results are missing (${errs.join('; ')}).` : '';
   foodPaintRes();
 }
@@ -1208,7 +1218,8 @@ async function scanOpen() {
   const done = code => { scanClose(); const q = $('#foodq'); if (q) q.value = code; barcodeLookup(code); };
   try {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('camera not available on this page');
-    stream = await navigator.mediaDevices.getUserMedia({video: {facingMode: {ideal: 'environment'}}, audio: false});
+    stream = await navigator.mediaDevices.getUserMedia({video: {facingMode: {ideal: 'environment'}, width: {ideal: 1920}, height: {ideal: 1080}}, audio: false});
+    try { const tr = stream.getVideoTracks()[0], cap = tr.getCapabilities ? tr.getCapabilities() : {}; if (cap.focusMode && cap.focusMode.includes('continuous')) await tr.applyConstraints({advanced: [{focusMode: 'continuous'}]}); } catch (x) {}
     const v = $('#scanvid'); if (!v || !alive) return scanClose();
     v.srcObject = stream; await v.play();
     msg('Point the camera at the barcode.');
@@ -1224,9 +1235,16 @@ async function scanOpen() {
       hints.set(ZXing.DecodeHintType.TRY_HARDER, true); rd.setHints(hints);
       const cv = document.createElement('canvas'), cx = cv.getContext('2d', {willReadFrequently: true});
       msg('Point the camera at the barcode.');
+      let n = 0;
+      const tryCanvas = () => { try { const lum = new ZXing.HTMLCanvasElementLuminanceSource(cv), bm = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(lum)); const r = rd.decode(bm); return r ? r.getText() : null; } catch (x) { return null; } };
       (async function loop() { while (alive) {
-        if (v.videoWidth) { cv.width = v.videoWidth; cv.height = v.videoHeight; cx.drawImage(v, 0, 0);
-          try { const lum = new ZXing.HTMLCanvasElementLuminanceSource(cv), bm = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(lum)); const r = rd.decode(bm); if (r && alive) return done(r.getText()); } catch (x) { /* none in this frame */ } }
+        if (v.videoWidth) {
+          const W = v.videoWidth, H = v.videoHeight; cv.width = W; cv.height = H; cx.drawImage(v, 0, 0);
+          let got = tryCanvas();
+          if (!got) { const cw = Math.round(W * 0.6), ch = Math.round(H * 0.4); cv.width = cw * 2; cv.height = ch * 2; cx.drawImage(v, (W - cw) / 2, (H - ch) / 2, cw, ch, 0, 0, cw * 2, ch * 2); got = tryCanvas(); }   // centre crop, enlarged
+          if (got && alive) return done(got);
+          if (++n % 5 === 0) msg(`Looking… camera ${W}×${H}. Hold the barcode flat, centred, about 6–10 inches away, well lit.`);
+        }
         await new Promise(r => setTimeout(r, 200)); } })();
     }
   } catch (x) {
