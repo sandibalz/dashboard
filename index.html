@@ -276,7 +276,7 @@ const rowCls = p => {
   return c;
 };
 /* 11/1/26a: "Now" line = latest balance-only read (button on Free Spins sites). Blue = fine, red = the last read failed. */
-const PAGE_VERSION = '2026-11-01c';
+const PAGE_VERSION = '2026-11-01d';
 const agoTxt = ms => { const m = Math.max(0, Math.round((Date.now() - ms) / 60000)); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago'; };
 function liveLine(p, m) {
   if (!p.canBal) return '';
@@ -516,6 +516,7 @@ async function ghCall(method, f, body) {
   if (!r.ok) throw new Error('GitHub error ' + r.status);
   return r.json();
 }
+const pubLink = f => 'https://' + PUB.repo.split('/')[0] + '.github.io/' + PUB.repo.split('/')[1] + '/' + f;      // live address of a published page
 async function pubCheck() {
   if (!ghTok()) { pubState.files = null; return; }
   pubState.files = await Promise.all(PUB.files.map(async f => { const [od, gh] = await Promise.all([odBytes(f), ghCall('GET', f)]); return { f, od, gh, same: !!od && !!gh && od.sha === gh.sha }; }));
@@ -546,9 +547,10 @@ function pubRender() {
   const s = pubState, has = !!ghTok(); let status = '';
   if (has && s.files) status = s.files.map(x => {
     const st = x.same ? `<span class="st same">✓ Same</span>` : !x.od ? `<span class="st diff">● Not on OneDrive</span>` : !x.gh ? `<span class="st diff">● New (not on GitHub yet)</span>` : `<span class="st diff">● Different</span>`;
-    return `<p><b>${esc(x.f)}</b> ${st}<br>OneDrive: ${x.od ? x.od.size.toLocaleString() + ' bytes, changed ' + lastTxt(Date.parse(x.od.mtime)) : 'missing'}<br>GitHub: ${x.gh ? x.gh.size.toLocaleString() + ' bytes' : 'missing'}</p>`; }).join('');
+    return `<p><b><a href="${pubLink(x.f)}" target="_blank" rel="noopener">${esc(x.f)}</a></b> ${st}<br>OneDrive: ${x.od ? x.od.size.toLocaleString() + ' bytes, changed ' + lastTxt(Date.parse(x.od.mtime)) : 'missing'}<br>GitHub: ${x.gh ? x.gh.size.toLocaleString() + ' bytes' : 'missing'}</p>`; }).join('');
   const canPush = !s.busy && pubPending('push').length, canPull = !s.busy && pubPending('pull').length;
   el.innerHTML = `<h3>Publish to GitHub</h3><p>Pushes ${PUB.files.map(f => `<code class="k">${esc(f)}</code>`).join(' and ')} from OneDrive to <code class="k">${esc(PUB.repo)}</code> (${esc(PUB.branch)}). The live page updates about a minute later.</p>
+  <p>Open: ${PUB.files.map(f => `<a href="${pubLink(f)}" target="_blank" rel="noopener">${esc(f.replace(/\.html$/, ''))}</a>`).join(' · ')}</p>
   ${has ? '' : `<p><b>Paste your GitHub token</b> (the one limited to ${esc(PUB.repo)}, with Contents read and write). It is saved only in this browser on this device.</p><input type="password" id="ghtok" placeholder="github_pat_..." autocomplete="off" spellcheck="false"><button class="btn" id="pub-save">Save token</button>`}
   ${has ? status : ''}${s.busy ? '<p>Working...</p>' : ''}${s.msg ? `<p class="st same">${esc(s.msg)}</p>` : ''}${s.note ? `<p>${esc(s.note)}</p>` : ''}${s.err ? `<div class="err">${esc(s.err)}</div>` : ''}
   ${has ? `<div><button class="btn" id="pub-check" ${s.busy ? 'disabled' : ''}>Check</button><button class="btn" id="pub-push" ${canPush ? '' : 'disabled'}>Push to GitHub</button><button class="btn alt" id="pub-pull" ${canPull ? '' : 'disabled'}>Pull from GitHub</button><button class="btn alt" id="pub-forget">Forget token</button></div>` : ''}
