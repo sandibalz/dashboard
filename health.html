@@ -147,6 +147,7 @@ select.in{background:var(--bg)}
 .pick{border:1px solid var(--rule);border-radius:10px;padding:14px;margin:10px 0}
 .pick label{font-size:13px;color:var(--ink2)}
 .favs{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 0;align-items:center}
+.qtyc{white-space:nowrap}.qtyc button{border:1px solid var(--rule);background:none;border-radius:6px;width:24px;height:24px;line-height:1;padding:0;margin:0 2px}
 .favchip{display:inline-flex;border:1px solid var(--rule);border-radius:999px;overflow:hidden}
 .favchip button{border:0;background:none;padding:4px 10px;font-size:13px;color:var(--ink2)}
 .favchip button:hover{color:var(--ink)}
@@ -504,7 +505,7 @@ async function loadAny(file, onProgress) {
    Opened as a file on your computer: the summary is kept in this browser.
    Served over https (GitHub Pages): nothing is kept in the browser. The summary lives in your
    OneDrive behind the Microsoft sign-in (section 4b), the same way the Collector Overview page works. */
-const PAGE_VERSION = '2026-11-01d';                       // bump on every change, same habit as the Overview page; shown next to the title
+const PAGE_VERSION = '2026-11-01e';                       // bump on every change, same habit as the Overview page; shown next to the title
 const CLOUD = location.protocol === 'https:';
 const KEY = 'healthlog.summary.v1';
 const Store = {
@@ -1015,11 +1016,12 @@ async function foodPersist() {
     if (!CLOUD) { localStorage.setItem(FOOD_KEY, JSON.stringify(F)); }
     else {
       const r = await graph(FOOD_ITEM + ':/content');
-      if (r.ok) F = mergeF(F, normalizeF(await r.json()));
+      let changed = false;
+      if (r.ok) { const sz = o => [o.entries.length, o.favs.length, o.weights.length, o.tomb.length, o.favTomb.length].join(), mine = sz(F), theirs = normalizeF(await r.json()); F = mergeF(F, theirs); changed = sz(F) !== mine; }
       else if (r.status !== 404) throw new Error('OneDrive answered ' + r.status + '.');
       const put = await graph(FOOD_ITEM + ':/content?@microsoft.graph.conflictBehavior=replace', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(F)});
       if (!put.ok) throw new Error('OneDrive answered ' + put.status + '.');
-      foodPaintDay(); foodPaintFavs(); calPaintAll();
+      if (changed) { foodPaintDay(); foodPaintFavs(); calPaintAll(); }       // only redraw when another device added something, so taps are never lost to a repaint
     }
     S.food.save = CLOUD ? 'Saved to OneDrive.' : 'Saved in this browser.';
   } catch (e) { S.food.save = 'Not saved: ' + (e.signin ? 'sign in again.' : e.message) + ' It will retry on the next change.'; if (e.signin) account = null; }
@@ -1050,8 +1052,9 @@ function foodDayHTML() {
     ${cell('Calories burned', io.out != null ? n0(io.out) : '–', io.out != null ? 'Cal' : '', io.out != null ? `${n0(x.basal)} resting + ${n0(x.move)} active${d === today() ? ', so far today' : ''}` : 'no watch data for this day')}
     ${cell('In minus burned', net != null ? (net > 0 ? '+' : '−') + n0(Math.abs(net)) : '–', net != null ? 'Cal' : '', net != null && d === today() ? 'burn is still counting today' : '')}
     ${cell('Protein · carbs · fat', `${rnd(t.p)} · ${rnd(t.c)} · ${rnd(t.f)}`, 'g', 'logged here')}</div>`;
-  const rows = ents.map(e => `<tr><td>${esc(e.meal)}<small>${esc(e.t)}</small></td><td>${esc(e.name)}${e.amt ? `<small>${esc(e.amt)}</small>` : ''}</td><td class="num">${n0(e.kcal)}</td><td class="num">${rnd(e.p)}</td><td class="num">${rnd(e.c)}</td><td class="num">${rnd(e.f)}</td><td class="num"><button class="lnk" data-fa="fav" data-id="${esc(e.id)}" title="Save as a favorite" aria-label="Save as a favorite">★</button> <button class="lnk" data-fa="del" data-id="${esc(e.id)}" aria-label="Delete ${esc(e.name)}">×</button></td></tr>`).join('');
-  const table = ents.length ? `<div class="tablewrap" style="margin-top:20px"><table><thead><tr><th>Meal</th><th>Food</th><th class="num">Cal</th><th class="num">Protein</th><th class="num">Carbs</th><th class="num">Fat</th><th></th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td></td><td>Total</td><td class="num">${n0(t.k)}</td><td class="num">${rnd(t.p)}</td><td class="num">${rnd(t.c)}</td><td class="num">${rnd(t.f)}</td><td></td></tr></tfoot></table></div>` : `<p class="note" style="padding:18px 0 0">Nothing logged for ${esc(fmtDate(d, {weekday: 'long', month: 'short', day: 'numeric'}))} yet.</p>`;
+  const rows = ents.map(e => `<tr><td>${esc(e.meal)}<small>${esc(e.t)}</small></td><td>${esc(e.name)}${e.amt ? `<small>${esc(e.amt)}</small>` : ''}${e.u ? ` <span class="qtyc"><button data-fa="qtydn" data-id="${esc(e.id)}" aria-label="One less">−</button><button data-fa="qtyup" data-id="${esc(e.id)}" aria-label="One more">+</button></span>` : ''}</td><td class="num">${n0(e.kcal)}</td><td class="num">${rnd(e.p)}</td><td class="num">${rnd(e.c)}</td><td class="num">${rnd(e.f)}</td><td class="num"><button class="lnk" data-fa="fav" data-id="${esc(e.id)}" title="Save as a favorite" aria-label="Save as a favorite">★</button> <button class="lnk" data-fa="del" data-id="${esc(e.id)}" aria-label="Delete ${esc(e.name)}">×</button></td></tr>`).join('');
+  const table = ents.length ? `<div class="tablewrap" style="margin-top:20px"><table><thead><tr><th>Meal</th><th>Food</th><th class="num">Cal</th><th class="num">Protein</th><th class="num">Carbs</th><th class="num">Fat</th><th></th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td></td><td>Total</td><td class="num">${n0(t.k)}</td><td class="num">${rnd(t.p)}</td><td class="num">${rnd(t.c)}</td><td class="num">${rnd(t.f)}</td><td></td></tr></tfoot></table></div>
+    <p class="meta">Save a meal as a favorite: ${MEALS.filter(m => ents.some(e => e.meal === m)).map(m => `<button class="btn" data-fa="savemeal" data-m="${m}">${m}</button>`).join(' ')}</p>` : `<p class="note" style="padding:18px 0 0">Nothing logged for ${esc(fmtDate(d, {weekday: 'long', month: 'short', day: 'numeric'}))} yet.</p>`;
   return stats + table;
 }
 function pickHTML() {
@@ -1063,11 +1066,12 @@ function pickHTML() {
     <div class="frow"><button class="btn solid" data-fa="addpick">Add to ${esc(fmtDate(S.food.day, {weekday: 'short', month: 'short', day: 'numeric'}))}</button><button class="lnk" data-fa="cancel">Cancel</button></div></div>`;
 }
 function manualHTML() {
-  return `<form id="manualform" class="pick"><div class="frow"><input name="name" class="in wide" placeholder="What you ate" required aria-label="Food name"><input name="kcal" class="in num" type="number" min="0" step="any" placeholder="Cal" required aria-label="Calories"></div>
+  const fav = S.food.manual === 'fav';
+  return `<form id="manualform" class="pick">${fav ? '<div class="frow"><b>New favorite</b><small class="meta">saved for one-tap logging; nothing is logged yet</small></div>' : ''}<div class="frow"><input name="name" class="in wide" placeholder="${fav ? 'Name, e.g. Black coffee' : 'What you ate'}" required aria-label="Food name">${fav ? '<input name="amt" class="in" placeholder="One serving, e.g. 1 cup" aria-label="What one serving is" style="width:170px">' : ''}<input name="kcal" class="in num" type="number" min="0" step="any" placeholder="Cal" required aria-label="Calories"></div>
     <div class="frow"><input name="p" class="in num" type="number" min="0" step="any" placeholder="Protein g" aria-label="Protein grams"><input name="c" class="in num" type="number" min="0" step="any" placeholder="Carbs g" aria-label="Carbs grams"><input name="f" class="in num" type="number" min="0" step="any" placeholder="Fat g" aria-label="Fat grams">
     <select name="meal" class="in" aria-label="Meal">${MEALS.map(m => `<option${m === mealFor(nowHM()) ? ' selected' : ''}>${m}</option>`).join('')}</select></div>
-    <div class="frow"><label><input type="checkbox" name="fav"> Save to favorites</label></div>
-    <div class="frow"><button class="btn solid" type="submit">Add</button><button class="lnk" type="button" data-fa="cancel">Cancel</button></div></form>`;
+    ${fav ? '<p class="meta" style="margin:0 0 8px">Enter the numbers for ONE serving. The Meal is the one it is usually logged under.</p>' : '<div class="frow"><label><input type="checkbox" name="fav"> Save to favorites</label></div>'}
+    <div class="frow"><button class="btn solid" type="submit">${fav ? 'Save favorite' : 'Add'}</button><button class="lnk" type="button" data-fa="cancel">Cancel</button></div></form>`;
 }
 function resHTML() {
   const fs = S.food;
@@ -1082,13 +1086,14 @@ function resHTML() {
 function recents() {                                       // foods you logged lately that are not already favorites
   const seen = new Set(F.favs.map(favKey)), out = [];
   for (const e of F.entries.slice().sort((p, q) => (p.d + p.t < q.d + q.t ? 1 : -1))) {
+    if (e.u || e.fav || /^favorite/.test(e.src || '')) continue;                 // already one tap away as a favorite
     const k = favKey(e); if (seen.has(k)) continue; seen.add(k); out.push(e); if (out.length >= 10) break;
   }
   return out;
 }
 const keyHTML = () => Store.pref('fdcKey') ? `<p class="meta">USDA key saved on this device (1,000 searches an hour). <button class="lnk" data-fa="fdckey">Change</button></p>` : `<p class="meta">Using the shared USDA demo limit (30 searches an hour). <button class="lnk" data-fa="fdckey">Add your free USDA key</button> for 1,000.</p>`;
 const recentHTML = () => { const r = recents(); return r.length ? `<div class="favs"><span class="meta">Recent</span>${r.map((e, i) => `<span class="favchip"><button data-fa="recadd" data-i="${i}" title="${esc(e.amt || '')}">${esc(e.name)} · ${n0(e.kcal)}</button></span>`).join('')}</div>` : ''; };
-const favsHTML = () => (F.favs.length ? `<div class="favs"><span class="meta">Favorites</span>${F.favs.map((f, i) => `<span class="favchip"><button data-fa="favadd" data-i="${i}" title="${esc(f.amt || '')}">${esc(f.name)} · ${n0(f.kcal)}</button><button data-fa="favdel" data-i="${i}" aria-label="Remove ${esc(f.name)} from favorites">×</button></span>`).join('')}</div>` : '') + recentHTML() + keyHTML();
+const favsHTML = () => `<div class="favs"><span class="meta">Favorites</span><label class="meta">How many <input id="favqty" class="in num" type="number" min="0.5" step="0.5" value="${S.food.fq || 1}" style="width:68px" aria-label="How many to add"></label>${F.favs.map((f, i) => `<span class="favchip"><button data-fa="favadd" data-i="${i}" title="${esc(f.items ? f.items.map(x => x.name).join(', ') : (f.amt || ''))}">${esc(f.name)} · ${n0(f.kcal)}${f.items ? ` · ${f.items.length} items` : ''}</button><button data-fa="favdel" data-i="${i}" aria-label="Remove ${esc(f.name)} from favorites">×</button></span>`).join('')}<button class="lnk" data-fa="favnew">+ New favorite</button></div>` + recentHTML() + keyHTML();
 
 function foodPaintAll() {
   const h = $('#foodhost'); if (!h || !M) return;
@@ -1210,13 +1215,36 @@ function addFromPick() {
 function manualAdd(fd) {
   const kcal = parseFloat(fd.get('kcal')), name = String(fd.get('name') || '').trim(); if (!name || !(kcal >= 0)) return;
   const meal = fd.get('meal') || mealFor(nowHM()), day = S.food.day, n = k => rnd(parseFloat(fd.get(k)) || 0, 1);
+  if (S.food.manual === 'fav') {
+    const f = {id: uid(), name, amt: String(fd.get('amt') || '').trim(), kcal: rnd(kcal, 1), p: n('p'), c: n('c'), f: n('f'), meal};
+    F.favs = F.favs.filter(x => favKey(x) !== favKey(f)); F.favs.push(f);
+    S.food.manual = false; foodPaintRes(); foodPaintFavs(); return foodDirty();
+  }
   const e = {id: uid(), d: day, t: timeFor(day, meal), meal, name, amt: '', kcal: rnd(kcal), p: n('p'), c: n('c'), f: n('f'), src: 'typed'};
   if (fd.get('fav')) addFav(e);
   S.food.manual = false; foodPaintRes(); addEntry(e);
 }
 function addFav(e) {
-  const f = {id: uid(), name: e.name, amt: e.amt, kcal: e.kcal, p: e.p, c: e.c, f: e.f};
+  const f = e.u ? {id: uid(), name: e.name, amt: e.unit || '', kcal: e.u.kcal, p: e.u.p, c: e.u.c, f: e.u.f, meal: e.meal} : {id: uid(), name: e.name, amt: e.amt, kcal: e.kcal, p: e.p, c: e.c, f: e.f, meal: e.meal};
   if (!F.favs.some(x => favKey(x) === favKey(f))) { F.favs.push(f); foodPaintFavs(); foodDirty(); }
+}
+const curQty = () => { const v = parseFloat($('#favqty') && $('#favqty').value); return v > 0 ? v : 1; };
+const defaultMeal = f => (f.meal && MEALS.includes(f.meal)) ? f.meal : (S.food.day === today() ? mealFor(nowHM()) : mealFor(MEAL_T.Lunch));
+function applyQty(e) {                                        // entries from a favorite keep per-serving numbers (u) so tapping again, or + / −, adjusts the count
+  const q = e.qty, u = e.u;
+  e.kcal = rnd(u.kcal * q); e.p = rnd(u.p * q, 1); e.c = rnd(u.c * q, 1); e.f = rnd(u.f * q, 1);
+  e.amt = q === 1 ? (e.unit || '') : q + ' × ' + (e.unit || 'serving');
+}
+function logFav(f, q) {                                       // tapping a favorite again on the same day adds to its row (6 coffees = one row, qty 6)
+  const fs = S.food, day = fs.day, meal = defaultMeal(f); fs.fq = 1;
+  if (f.items) {
+    for (const it of f.items) F.entries.push({id: uid(), d: day, t: timeFor(day, meal), meal, name: it.name, amt: q === 1 ? it.amt : q + ' × ' + (it.amt || 'serving'), kcal: rnd(it.kcal * q), p: rnd(it.p * q, 1), c: rnd(it.c * q, 1), f: rnd(it.f * q, 1), src: 'favorite meal'});
+  } else {
+    const e = F.entries.find(x => x.d === day && x.fav === f.id && x.u);
+    if (e) { e.qty = rnd(e.qty + q, 2); applyQty(e); }
+    else { const n = {id: uid(), d: day, t: timeFor(day, meal), meal, name: f.name, fav: f.id, unit: f.amt || '', qty: q, u: {kcal: f.kcal, p: f.p, c: f.c, f: f.f}, src: 'favorite'}; applyQty(n); F.entries.push(n); }
+  }
+  foodPaintDay(); foodPaintFavs(); foodDirty();
 }
 function foodAct(a, ds) {
   const fs = S.food;
@@ -1231,8 +1259,26 @@ function foodAct(a, ds) {
     case 'addpick': return addFromPick();
     case 'del': F.entries = F.entries.filter(e => e.id !== ds.id); F.tomb.push(ds.id); foodPaintDay(); return foodDirty();
     case 'fav': { const e = F.entries.find(x => x.id === ds.id); if (e) addFav(e); return; }
-    case 'favadd': { const f = F.favs[+ds.i]; if (!f) return; const t = timeFor(fs.day, mealFor(nowHM())), meal = fs.day === today() ? mealFor(t) : mealFor(MEAL_T.Lunch); return addEntry({id: uid(), d: fs.day, t, meal, name: f.name, amt: f.amt, kcal: f.kcal, p: f.p, c: f.c, f: f.f, src: 'favorite'}); }
-    case 'recadd': { const f = recents()[+ds.i]; if (!f) return; const t = timeFor(fs.day, mealFor(nowHM())), meal = fs.day === today() ? mealFor(t) : mealFor(MEAL_T.Lunch); return addEntry({id: uid(), d: fs.day, t, meal, name: f.name, amt: f.amt, kcal: f.kcal, p: f.p, c: f.c, f: f.f, src: 'recent'}); }
+    case 'favadd': { const f = F.favs[+ds.i]; if (f) logFav(f, curQty()); return; }
+    case 'recadd': {
+      const f = recents()[+ds.i]; if (!f) return; const q = curQty(), meal = defaultMeal(f);
+      fs.fq = 1; return addEntry({id: uid(), d: fs.day, t: timeFor(fs.day, meal), meal, name: f.name, amt: q === 1 ? f.amt : q + ' × ' + (f.amt || 'serving'), kcal: rnd(f.kcal * q), p: rnd(f.p * q, 1), c: rnd(f.c * q, 1), f: rnd(f.f * q, 1), src: 'recent'});
+    }
+    case 'favnew': fs.manual = 'fav'; fs.pick = null; fs.err = ''; fs.results = null; foodPaintRes(); { const n = $('#manualform input[name=name]'); if (n) n.focus(); } return;
+    case 'qtyup': case 'qtydn': {
+      const e = F.entries.find(x => x.id === ds.id); if (!e || !e.u) return;
+      e.qty = rnd((e.qty || 1) + (a === 'qtyup' ? 1 : -1), 2);
+      if (e.qty <= 0) { F.entries = F.entries.filter(x => x.id !== e.id); F.tomb.push(e.id); } else applyQty(e);
+      foodPaintDay(); foodPaintFavs(); return foodDirty();
+    }
+    case 'savemeal': {
+      const items = F.entries.filter(e => e.d === fs.day && e.meal === ds.m); if (!items.length) return;
+      const name = (window.prompt('Name for this favorite meal (it logs all ' + items.length + ' items at once):', 'My ' + ds.m.toLowerCase()) || '').trim(); if (!name) return;
+      const sum = k => rnd(items.reduce((t, e) => t + e[k], 0), 1);
+      F.favs = F.favs.filter(x => x.name !== name);
+      F.favs.push({id: uid(), name, meal: ds.m, amt: '', kcal: rnd(sum('kcal')), p: sum('p'), c: sum('c'), f: sum('f'), items: items.map(e => ({name: e.name, amt: e.amt, kcal: e.kcal, p: e.p, c: e.c, f: e.f}))});
+      foodPaintFavs(); return foodDirty();
+    }
     case 'wtdel': F.weights = F.weights.filter(w => w.id !== ds.id); F.tomb.push(ds.id); calPaintAll(); return foodDirty();
     case 'favdel': { const f = F.favs[+ds.i]; if (!f) return; F.favs.splice(+ds.i, 1); F.favTomb.push(f.id); foodPaintFavs(); return foodDirty(); }
     case 'fdckey': { const k = window.prompt('Paste your free USDA FoodData Central API key (sign up at fdc.nal.usda.gov/api-key-signup):'); if (k && k.trim()) { Store.pref('fdcKey', k.trim()); fs.keyHint = false; fs.err = 'Key saved. Search again.'; memo.clear(); foodPaintRes(); foodPaintFavs(); } return; }
@@ -1243,7 +1289,7 @@ document.addEventListener('submit', ev => {
   if (ev.target.id === 'foodform') { ev.preventDefault(); foodSearch($('#foodq').value.trim()); }
   else if (ev.target.id === 'manualform') { ev.preventDefault(); manualAdd(new FormData(ev.target)); }
 });
-document.addEventListener('input', ev => { if (ev.target.id === 'pickqty' || ev.target.id === 'pickunit' || ev.target.id === 'pickmeal') pickCalc(); });
+document.addEventListener('input', ev => { if (ev.target.id === 'favqty') S.food.fq = parseFloat(ev.target.value) || 1; if (ev.target.id === 'pickqty' || ev.target.id === 'pickunit' || ev.target.id === 'pickmeal') pickCalc(); });
 document.addEventListener('change', ev => { if (ev.target.id === 'fooddate' && ev.target.value) { S.food.day = ev.target.value; foodPaintDay(); } });
 
 /* ---------- 6c. weight + "my math" calorie estimate ----------
