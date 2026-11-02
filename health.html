@@ -517,7 +517,7 @@ async function loadAny(file, onProgress) {
    Opened as a file on your computer: the summary is kept in this browser.
    Served over https (GitHub Pages): nothing is kept in the browser. The summary lives in your
    OneDrive behind the Microsoft sign-in (section 4b), the same way the Collector Overview page works. */
-const PAGE_VERSION = '2026-11-02c';                       // bump on every change, same habit as the Overview page; shown next to the title
+const PAGE_VERSION = '2026-11-02d';                       // bump on every change, same habit as the Overview page; shown next to the title
 const CLOUD = location.protocol === 'https:';
 const KEY = 'healthlog.summary.v1';
 const Store = {
@@ -1121,7 +1121,9 @@ const fdcKey = () => F.cfg.fdcKey || Store.pref('fdcKey') || '';               /
 function migrateKey() { const l = Store.pref('fdcKey'); if (l && !F.cfg.fdcKey) { F.cfg = {fdcKey: l, t: Date.now()}; foodDirty(); } }   // first load after this update: copy a key already saved on this device up to OneDrive
 const keyHTML = () => fdcKey() ? `<p class="meta">USDA key saved in your OneDrive food log, so every device uses it (1,000 searches an hour). <button class="lnk" data-fa="fdckey">Change</button></p>` : `<p class="meta">Using the shared USDA demo limit (30 searches an hour). <button class="lnk" data-fa="fdckey">Add your free USDA key</button> for 1,000 · <a class="lnk" href="https://fdc.nal.usda.gov/api-key-signup" target="_blank" rel="noopener">get one free</a>.</p>`;
 const recentHTML = () => { const r = recents(); return r.length ? `<div class="favs"><span class="meta">Recent</span>${r.map((e, i) => `<span class="favchip"><button data-fa="recadd" data-i="${i}" title="${esc(e.amt || '')}">${esc(e.name)} · ${n0(e.kcal)}</button></span>`).join('')}</div>` : ''; };
-const favsHTML = () => `<div class="favs"><span class="meta">Favorites</span><label class="meta">How many <input id="favqty" class="in num" type="number" min="0.5" step="0.5" value="${S.food.fq || 1}" style="width:68px" aria-label="How many to add"></label>${F.favs.map((f, i) => `<span class="favchip"><button data-fa="favadd" data-i="${i}" title="${esc(f.items ? f.items.map(x => x.name).join(', ') : (f.amt || ''))}">${esc(f.name)} · ${n0(f.kcal)}${f.items ? ` · ${f.items.length} items` : ''}</button><button data-fa="favdel" data-i="${i}" aria-label="Remove ${esc(f.name)} from favorites">×</button></span>`).join('')}<a class="lnk" href="#favorites">Manage favorites</a></div><p class="meta">Tap a favorite to log it. Build or edit favorites and meals in Manage favorites, or tap ★ on any row below to save it.</p>` + recentHTML() + keyHTML();
+const favOpt = (f, i) => `<option value="${i}"${S.food.fsel === f.id ? ' selected' : ''}>${esc(f.name)} · ${n0(f.kcal)} Cal${f.items ? ` · ${f.items.length} items` : ''}</option>`;
+const favSelHTML = () => { const m = [], o = []; F.favs.forEach((f, i) => (f.items ? m : o).push(favOpt(f, i))); const g = (t, a) => a.length ? (m.length && o.length ? `<optgroup label="${t}">${a.join('')}</optgroup>` : a.join('')) : ''; return `<select id="favsel" class="in" aria-label="Choose a favorite" style="max-width:100%"><option value="">Choose a favorite (${F.favs.length})…</option>${g('Meals', m)}${g('Single foods', o)}</select>`; };
+const favsHTML = () => `<div class="favs"><span class="meta">Favorites</span>${F.favs.length ? favSelHTML() + `<label class="meta">How many <input id="favqty" class="in num" type="number" min="0.5" step="0.5" value="${S.food.fq || 1}" style="width:68px" aria-label="How many to add"></label><button class="btn solid" data-fa="favaddsel">Add</button>` : '<span class="meta">None yet</span>'}<a class="lnk" href="#favorites">Manage favorites</a></div><p class="meta">Pick a favorite and tap Add to log it. Build, edit or delete favorites and meals in Manage favorites, or tap ★ on any row below to save it.</p>` + recentHTML() + keyHTML();
 
 function foodPaintAll() {
   const h = $('#foodhost'); if (!h || !M) return;
@@ -1414,6 +1416,7 @@ function foodAct(a, ds) {
     case 'draftadd': return addFromPick('draft');
     case 'del': F.entries = F.entries.filter(e => e.id !== ds.id); F.tomb.push(ds.id); foodPaintDay(); return foodDirty();
     case 'fav': { const e = F.entries.find(x => x.id === ds.id); if (e) addFav(e); return; }
+    case 'favaddsel': { const el = $('#favsel'), f = el && el.value !== '' ? F.favs[+el.value] : null; if (f) logFav(f, curQty()); else if (el) el.focus(); return; }
     case 'favadd': { const f = F.favs[+ds.i]; if (f) logFav(f, curQty()); return; }
     case 'recadd': {
       const f = recents()[+ds.i]; if (!f) return; const q = curQty(), meal = defaultMeal(f);
@@ -1465,7 +1468,7 @@ document.addEventListener('submit', ev => {
   if (ev.target.id === 'foodform') { ev.preventDefault(); foodSearch($('#foodq').value.trim()); }
   else if (ev.target.id === 'manualform') { ev.preventDefault(); manualAdd(new FormData(ev.target)); }
 });
-document.addEventListener('input', ev => { if (ev.target.id === 'favqty') S.food.fq = parseFloat(ev.target.value) || 1; if (ev.target.id === 'pickqty' || ev.target.id === 'pickunit' || ev.target.id === 'pickmeal' || ev.target.id === 'pickname' || ev.target.id === 'pickfav' || ev.target.id === 'pickcupg') pickCalc(); });
+document.addEventListener('input', ev => { if (ev.target.id === 'favqty') S.food.fq = parseFloat(ev.target.value) || 1; if (ev.target.id === 'favsel') { const f = F.favs[+ev.target.value]; S.food.fsel = f ? f.id : ''; } if (ev.target.id === 'pickqty' || ev.target.id === 'pickunit' || ev.target.id === 'pickmeal' || ev.target.id === 'pickname' || ev.target.id === 'pickfav' || ev.target.id === 'pickcupg') pickCalc(); });
 document.addEventListener('change', ev => { if (ev.target.id === 'fooddate' && ev.target.value) { S.food.day = ev.target.value; foodPaintDay(); } });
 
 /* ---------- 6c. weight + "my math" calorie estimate ----------
