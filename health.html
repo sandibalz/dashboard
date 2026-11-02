@@ -152,6 +152,7 @@ select.in{background:var(--bg)}
 .favchip button:hover{color:var(--ink)}
 tfoot td{font-weight:600;border-bottom:0}
 .badge{display:inline-block;border:1px solid var(--c-ex);color:var(--c-ex);border-radius:999px;padding:0 8px;font-size:12px;font-weight:600}
+.how2{margin:18px 0 0}.how2 summary{cursor:pointer;color:var(--ink2);font-size:13px}
 .ver{color:var(--ink3);font-size:12px;white-space:nowrap}
 .who{color:var(--ink2);font-size:13px;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .status{margin:16px 0 0;padding:8px 12px;border:1px solid var(--rule);border-radius:8px;color:var(--ink2);font-size:13px}
@@ -216,7 +217,7 @@ function ts(s) {                                         // "2019-08-04 06:51:35
 function newAgg() {
   return {steps: new Map(), dist: new Map(), basal: new Map(), sleep: new Map(), hr: new Map(), rhr: new Map(),
     whr: new Map(), hrv: new Map(), vo2: new Map(), diet: new Map(), act: new Map(), weights: [], workouts: [],
-    hrT: [], hrV: [], dT0: [], dT1: [], dV: [], dS: [], srcIds: new Map(), cur: null, exportDate: null, records: 0, tags: 0};
+    hrT: [], hrV: [], hrk: new Map(), hrPrev: new Map(), profile: null, height: null, dT0: [], dT1: [], dV: [], dS: [], srcIds: new Map(), cur: null, exportDate: null, records: 0, tags: 0};
 }
 const bySrc = (m, d, s, v) => { let o = m.get(d); if (!o) m.set(d, o = {}); o[s] = (o[s] || 0) + v; };
 const acc = (m, d, v) => { let o = m.get(d); if (!o) m.set(d, o = [0, 0]); o[0] += v; o[1]++; };
@@ -254,6 +255,11 @@ function onTag(A, tag, a) {
       return;
     }
     case 'ExportDate': A.exportDate = attr(a, ' value="').slice(0, 10); return;
+    case 'Me': {
+      const sx = attr(a, ' HKCharacteristicTypeIdentifierBiologicalSex="'), dob = attr(a, ' HKCharacteristicTypeIdentifierDateOfBirth="').slice(0, 10);
+      A.profile = {sex: /Female/.test(sx) ? 'female' : /Male/.test(sx) ? 'male' : null, dob: /^\d{4}-\d\d-\d\d$/.test(dob) ? dob : null};
+      return;
+    }
   }
 }
 
@@ -279,7 +285,17 @@ function onRecord(A, a) {
       const sd = attr(a, ' startDate="'), d = sd.slice(0, 10);
       let o = A.hr.get(d); if (!o) A.hr.set(d, o = [0, 0, 1e9, 0]);
       o[0] += v; o[1]++; if (v < o[2]) o[2] = v; if (v > o[3]) o[3] = v;
-      A.hrT.push(ts(sd)); A.hrV.push(v); return;
+      const t = ts(sd), src = attr(a, ' sourceName="'), pv = A.hrPrev.get(src);
+      if (v >= 100 && pv !== undefined && t > pv) {                 // exercise-level heart rate: minutes and minutes x bpm, for the heart-rate energy estimate
+        const dt = Math.min(t - pv, 3e5) / 6e4; let k = A.hrk.get(d); if (!k) A.hrk.set(d, k = [0, 0]); k[0] += dt; k[1] += dt * v;
+      }
+      if (pv === undefined || t > pv) A.hrPrev.set(src, t);
+      A.hrT.push(t); A.hrV.push(v); return;
+    }
+    case 'HKQuantityTypeIdentifierHeight': {
+      const v = +attr(a, ' value="'), u = attr(a, ' unit="'), t = ts(attr(a, ' startDate="')); if (!(v > 0)) return;
+      const cm = u === 'ft' ? v * 30.48 : u === 'in' ? v * 2.54 : u === 'm' ? v * 100 : u === 'cm' ? v : 0;
+      if (cm > 50 && cm < 260 && (!A.height || t >= A.height[0])) A.height = [t, cm]; return;
     }
     case 'HKQuantityTypeIdentifierRestingHeartRate': { const v = +attr(a, ' value="'); if (v > 0) acc(A.rhr, attr(a, ' startDate="').slice(0, 10), v); return; }
     case 'HKQuantityTypeIdentifierWalkingHeartRateAverage': { const v = +attr(a, ' value="'); if (v > 0) acc(A.whr, attr(a, ' startDate="').slice(0, 10), v); return; }
@@ -306,7 +322,7 @@ function diet(A, a, i, v) {
   o[i] += v;
 }
 
-const TAGS = /<(Record|Workout|WorkoutStatistics|ActivitySummary|ExportDate)\b([^>]*)>/g;
+const TAGS = /<(Record|Workout|WorkoutStatistics|ActivitySummary|ExportDate|Me)\b([^>]*)>/g;
 function consume(A, text) {
   TAGS.lastIndex = 0; let m, last = 0;
   while ((m = TAGS.exec(text)) !== null) { last = TAGS.lastIndex; onTag(A, m[1], m[2]); }
@@ -388,6 +404,7 @@ async function zipStream(file, ent) {
 const maxOf = o => { let m = 0; for (const k in o) if (o[k] > m) m = o[k]; return m; };
 const r0 = x => Math.round(x), r1 = x => Math.round(x * 10) / 10, r2 = x => Math.round(x * 100) / 100;
 
+const SCHEMA = 2;                                         // 2 = adds profile (age, sex, height) and exercise-level heart-rate sums; the watcher rebuilds older summaries
 function finalize(A, sourceName) {
   const daily = {}, D = d => daily[d] || (daily[d] = {});
   for (const [d, o] of A.steps) D(d).steps = r0(maxOf(o));
@@ -399,6 +416,7 @@ function finalize(A, sourceName) {
   for (const [d, o] of A.whr) D(d).whr = r1(o[0] / o[1]);
   for (const [d, o] of A.hrv) D(d).hrv = r1(o[0] / o[1]);
   for (const [d, o] of A.vo2) D(d).vo2 = r1(o[0] / o[1]);
+  for (const [d, o] of A.hrk) { const x = D(d); x.hrMinX = r1(o[0]); x.hrSumX = r0(o[1]); }
   for (const [d, o] of A.diet) { const x = D(d); x.kcalIn = r0(o[0]); x.protein = r0(o[1]); x.carbs = r0(o[2]); x.fat = r0(o[3]); }
   for (const [d, o] of A.act) { const x = D(d); x.move = r0(o.move); x.moveGoal = r0(o.moveGoal); x.ex = r0(o.ex); x.exGoal = r0(o.exGoal); x.stand = o.stand; x.standGoal = o.standGoal; }
 
@@ -459,8 +477,9 @@ function finalize(A, sourceName) {
   const keys = Object.keys(daily).filter(d => d >= '2010').sort();
   let last = keys[keys.length - 1]; if (A.exportDate && A.exportDate < last) last = A.exportDate;
   let lastAct = null; for (let i = keys.length - 1; i >= 0; i--) { const x = daily[keys[i]]; if (x.moveGoal > 0 && keys[i] <= last) { lastAct = keys[i]; break; } }
-  return {v: 1, source: sourceName, built: new Date().toISOString().slice(0, 10), builtAt: new Date().toISOString(), exportDate: A.exportDate,
-    first: keys[0], last, lastAct: lastAct || last, records: A.records, daily, workouts, weights};
+  return {v: 1, schema: SCHEMA, source: sourceName, built: new Date().toISOString().slice(0, 10), builtAt: new Date().toISOString(), exportDate: A.exportDate,
+    first: keys[0], last, lastAct: lastAct || last, records: A.records, daily, workouts, weights,
+    profile: A.profile ? {...A.profile, heightCm: A.height ? r1(A.height[1]) : null} : null};
 }
 
 async function loadAny(file, onProgress) {
@@ -485,7 +504,7 @@ async function loadAny(file, onProgress) {
    Opened as a file on your computer: the summary is kept in this browser.
    Served over https (GitHub Pages): nothing is kept in the browser. The summary lives in your
    OneDrive behind the Microsoft sign-in (section 4b), the same way the Collector Overview page works. */
-const PAGE_VERSION = '2026-11-01c';                       // bump on every change, same habit as the Overview page; shown next to the title
+const PAGE_VERSION = '2026-11-01d';                       // bump on every change, same habit as the Overview page; shown next to the title
 const CLOUD = location.protocol === 'https:';
 const KEY = 'healthlog.summary.v1';
 const Store = {
@@ -956,7 +975,7 @@ function workoutsHTML(a, b) {
    Open Food Facts databases straight from the browser; typing your own calories always works. */
 const FOOD_KEY = 'healthlog.food.v1';
 const FOOD_ITEM = '/me/drive/root:/Documents/health-log/food-log.json';
-const emptyF = () => ({v: 1, entries: [], favs: [], tomb: [], favTomb: []});
+const emptyF = () => ({v: 1, entries: [], favs: [], tomb: [], favTomb: [], weights: []});
 let F = emptyF();
 const MEALS = ['Breakfast', 'Lunch', 'Dinner', 'Snack'], MEAL_T = {Breakfast: '08:00', Lunch: '12:30', Dinner: '18:30', Snack: '15:30'};
 const pad2 = n => String(n).padStart(2, '0');
@@ -970,13 +989,14 @@ const favKey = f => (f.name + '|' + f.kcal).toLowerCase();
 const memo = new Map();                                    // search/portion answers kept for this visit, so repeats cost no request
 S.food = {day: today(), results: null, busy: false, err: '', keyHint: false, pick: null, manual: false, save: '', tm: 0};
 
-const normalizeF = j => { const a = x => Array.isArray(x) ? x : []; return {v: 1, entries: a(j && j.entries), favs: a(j && j.favs), tomb: a(j && j.tomb), favTomb: a(j && j.favTomb)}; };
+const normalizeF = j => { const a = x => Array.isArray(x) ? x : []; return {v: 1, entries: a(j && j.entries), favs: a(j && j.favs), tomb: a(j && j.tomb), favTomb: a(j && j.favTomb), weights: a(j && j.weights)}; };
 function mergeF(a, b) {                                   // two devices may both have added things: keep both, honor deletes
   const tomb = [...new Set([...a.tomb, ...b.tomb])], dead = new Set(tomb), em = new Map();
   for (const e of [...b.entries, ...a.entries]) if (!dead.has(e.id)) em.set(e.id, e);
   const favTomb = [...new Set([...a.favTomb, ...b.favTomb])], fdead = new Set(favTomb), fm = new Map();
   for (const f of [...b.favs, ...a.favs]) if (!fdead.has(f.id) && !fm.has(favKey(f))) fm.set(favKey(f), f);
-  return {v: 1, entries: [...em.values()], favs: [...fm.values()], tomb, favTomb};
+  const wm = new Map(); for (const w of [...b.weights, ...a.weights]) if (!dead.has(w.id)) wm.set(w.id, w);
+  return {v: 1, entries: [...em.values()], favs: [...fm.values()], tomb, favTomb, weights: [...wm.values()]};
 }
 async function foodLoad() {
   if (S.food.tm) { clearTimeout(S.food.tm); S.food.tm = 0; await foodPersist(); }
@@ -999,7 +1019,7 @@ async function foodPersist() {
       else if (r.status !== 404) throw new Error('OneDrive answered ' + r.status + '.');
       const put = await graph(FOOD_ITEM + ':/content?@microsoft.graph.conflictBehavior=replace', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(F)});
       if (!put.ok) throw new Error('OneDrive answered ' + put.status + '.');
-      foodPaintDay(); foodPaintFavs();
+      foodPaintDay(); foodPaintFavs(); calPaintAll();
     }
     S.food.save = CLOUD ? 'Saved to OneDrive.' : 'Saved in this browser.';
   } catch (e) { S.food.save = 'Not saved: ' + (e.signin ? 'sign in again.' : e.message) + ' It will retry on the next change.'; if (e.signin) account = null; }
@@ -1076,12 +1096,12 @@ function foodPaintAll() {
     <div id="foodday"></div>
     <div class="foodadd"><form id="foodform" class="frow"><input id="foodq" class="in" type="search" placeholder="Search foods: banana, oatmeal, Greek yogurt" aria-label="Search foods" autocomplete="off"><button class="btn solid" type="submit">Search</button><button class="lnk" type="button" data-fa="manual">Enter calories myself</button></form><div id="foodres"></div></div>
     <div id="foodfavs"></div><p class="meta" id="foodstat" role="status"></p><div style="height:26px"></div><div id="foodchart"></div>`;
-  foodPaintDay(); foodPaintRes(); foodPaintFavs(); foodPaintStat();
+  foodPaintDay(); foodPaintRes(); foodPaintFavs(); foodPaintStat(); calPaintAll();
 }
 function foodPaintDay() { const e = $('#foodday'); if (!e) return; e.innerHTML = foodDayHTML(); const di = $('#fooddate'); if (di) di.value = S.food.day; foodPaintChart(); }
 function foodPaintRes() { const e = $('#foodres'); if (!e) return; e.innerHTML = resHTML(); if (S.food.pick) pickCalc(false); }
 function foodPaintFavs() { const e = $('#foodfavs'); if (e) e.innerHTML = favsHTML(); }
-function foodPaintStat() { const e = $('#foodstat'); if (e) e.textContent = S.food.save; }
+function foodPaintStat() { const e = $('#foodstat'); if (e) e.textContent = S.food.save; const w = $('#wtstat'); if (w) w.textContent = S.food.save; }
 function foodPaintChart() {
   const host = $('#foodchart'); if (!host || !M) return;
   const [a, b] = range(), days = listDays(a, b), gran = granFor(days.length);
@@ -1213,6 +1233,7 @@ function foodAct(a, ds) {
     case 'fav': { const e = F.entries.find(x => x.id === ds.id); if (e) addFav(e); return; }
     case 'favadd': { const f = F.favs[+ds.i]; if (!f) return; const t = timeFor(fs.day, mealFor(nowHM())), meal = fs.day === today() ? mealFor(t) : mealFor(MEAL_T.Lunch); return addEntry({id: uid(), d: fs.day, t, meal, name: f.name, amt: f.amt, kcal: f.kcal, p: f.p, c: f.c, f: f.f, src: 'favorite'}); }
     case 'recadd': { const f = recents()[+ds.i]; if (!f) return; const t = timeFor(fs.day, mealFor(nowHM())), meal = fs.day === today() ? mealFor(t) : mealFor(MEAL_T.Lunch); return addEntry({id: uid(), d: fs.day, t, meal, name: f.name, amt: f.amt, kcal: f.kcal, p: f.p, c: f.c, f: f.f, src: 'recent'}); }
+    case 'wtdel': F.weights = F.weights.filter(w => w.id !== ds.id); F.tomb.push(ds.id); calPaintAll(); return foodDirty();
     case 'favdel': { const f = F.favs[+ds.i]; if (!f) return; F.favs.splice(+ds.i, 1); F.favTomb.push(f.id); foodPaintFavs(); return foodDirty(); }
     case 'fdckey': { const k = window.prompt('Paste your free USDA FoodData Central API key (sign up at fdc.nal.usda.gov/api-key-signup):'); if (k && k.trim()) { Store.pref('fdcKey', k.trim()); fs.keyHint = false; fs.err = 'Key saved. Search again.'; memo.clear(); foodPaintRes(); foodPaintFavs(); } return; }
   }
@@ -1224,6 +1245,100 @@ document.addEventListener('submit', ev => {
 });
 document.addEventListener('input', ev => { if (ev.target.id === 'pickqty' || ev.target.id === 'pickunit' || ev.target.id === 'pickmeal') pickCalc(); });
 document.addEventListener('change', ev => { if (ev.target.id === 'fooddate' && ev.target.value) { S.food.day = ev.target.value; foodPaintDay(); } });
+
+/* ---------- 6c. weight + "my math" calorie estimate ----------
+   Weigh-ins typed here live in the same OneDrive log file as food (F.weights). Estimates are labelled models:
+   resting = Mifflin-St Jeor; walking/running = standard net energy per km from the day's distance (running rate for
+   logged runs); other workouts = MET x time; heart-rate = Keytel et al. over the minutes at 100+ bpm. Nothing here
+   is a measurement, and Apple's numbers are models too. */
+const LB = 0.45359237, KM = 1.609344;
+const MET = {Cycling: 7.5, Swimming: 7, HighIntensityIntervalTraining: 8, TraditionalStrengthTraining: 5, FunctionalStrengthTraining: 5, CoreTraining: 4, Elliptical: 5, Rowing: 7, Yoga: 3, Pilates: 3.5, StairClimbing: 8, MixedCardio: 7, Dance: 5, Tennis: 7, Basketball: 6.5, Soccer: 7, Golf: 3.5, Cooldown: 2.5, Flexibility: 2.5, Other: 4};
+const WALKRUN = new Set(['Running', 'Walking', 'Hiking']);
+function allWeights() {                                   // [[date, lb]] sorted; weigh-ins typed here replace Health's for the same day
+  const m = new Map(); for (const [d, v] of (M ? M.weights : [])) m.set(d, {lb: v, src: 'Health'});
+  for (const w of F.weights) m.set(w.d, {lb: w.lb, src: 'entered here', id: w.id});
+  return [...m].sort((a, b) => a[0] < b[0] ? -1 : 1).map(([d, o]) => [d, o.lb, o.src, o.id]);
+}
+function weightOn(ws, d) {                                // nearest weigh-in on or before the day, else the first one
+  let r = null; for (const w of ws) { if (w[0] <= d) r = w; else break; }
+  return r || ws[0] || null;
+}
+const ageOn = (dob, d) => (dnum(d) - dnum(dob)) / 365.2425;
+function estimateDay(d, wLb, P) {
+  const x = M.daily[d]; if (!x || x.basal == null || x.move == null) return null;
+  const W = wLb * LB, A = ageOn(P.dob, d), male = P.sex !== 'female';
+  const rest = 10 * W + 6.25 * P.heightCm - 5 * A + (male ? 5 : -161);
+  const ws = M.workouts.filter(w => w.d === d);
+  let runMi = 0, other = 0;
+  for (const w of ws) { if (w.t === 'Running') runMi += w.mi || 0; else if (!WALKRUN.has(w.t)) other += ((MET[w.t] || 4) - 1) * W * (w.min / 60); }
+  const tot = x.dist || 0; runMi = Math.min(runMi, tot);
+  const form = W * (0.53 * (tot - runMi) * KM + 1.0 * runMi * KM) + other;
+  let hr = null;
+  if (x.hrMinX > 0) {
+    const T = x.hrMinX, avg = x.hrSumX / T;
+    const kpm = (male ? (-55.0969 + 0.6309 * avg + 0.1988 * W + 0.2017 * A) : (-20.4022 + 0.4472 * avg - 0.1263 * W + 0.074 * A)) / 4.184;
+    hr = Math.max(0, kpm * T - rest / 1440 * T);
+  } else hr = 0;
+  return {restA: x.basal, actA: x.move, restM: rest, actF: form, actH: hr};
+}
+function calPaintAll() { wtPaint(); calPaint(); }
+
+function wtPaint() {
+  const h = $('#wthost'); if (!h || !M) return;
+  const ws = allWeights(), [a, b] = range(), days = listDays(a, b), gran = granFor(days.length);
+  const recent = ws.slice(-6).reverse().map(w => `<tr><td>${fmtDate(w[0])}</td><td class="num">${n1(w[1])} lb</td><td>${w[2]}</td><td class="num">${w[3] ? `<button class="lnk" data-fa="wtdel" data-id="${esc(w[3])}" aria-label="Delete weigh-in">×</button>` : ''}</td></tr>`).join('');
+  h.innerHTML = `<form id="wtform" class="frow"><input name="lb" class="in num" type="number" min="50" max="900" step="0.1" placeholder="lb" required aria-label="Weight in pounds"><input name="d" class="in" type="date" value="${today()}" aria-label="Weigh-in date"><button class="btn solid" type="submit">Add weigh-in</button><span class="meta" id="wtstat" style="margin:0"></span></form>
+    <div id="wtchart" style="margin:18px 0"></div>
+    ${recent ? `<div class="tablewrap"><table><thead><tr><th>Date</th><th class="num">Weight</th><th>From</th><th></th></tr></thead><tbody>${recent}</tbody></table></div>` : ''}`;
+  const wt = bucketed(days, gran, d => { const p = ws.find(q => q[0] === d); return p ? p[1] : null; }, 'last');
+  for (let i = charts.length - 1; i >= 0; i--) if (charts[i].id === 'c-wt') charts.splice(i, 1);
+  if (wt.vals.filter(v => v != null).length >= 2) {
+    const series = [{name: 'Weight', color: 'var(--c-weight)', type: 'line', values: wt.vals, fmt: x => n1(x) + ' lb', connect: true, dots: true}];
+    $('#wtchart').innerHTML = block('c-wt', 'Weight', 'Weigh-ins in this range', series);
+    mount('c-wt', {title: 'Weight', zero: false, gran, labels: wt.labels, series, yFmt: n0});
+  } else $('#wtchart').innerHTML = `<p class="note" style="padding:6px 0">Fewer than two weigh-ins in this range${ws.length ? `; the latest is ${n1(ws[ws.length - 1][1])} lb on ${fmtDate(ws[ws.length - 1][0])}` : ''}.</p>`;
+}
+
+function calPaint() {
+  const h = $('#calhost'); if (!h || !M) return;
+  const P = M.profile, ws = allWeights();
+  if (!P || !P.dob || !P.heightCm) { h.innerHTML = '<p class="note" style="padding:6px 0">This needs your age, sex and height, which come from the Health export. Import a fresh export (Send export to OneDrive, or Open file) and they appear here.</p>'; return; }
+  if (!ws.length) { h.innerHTML = '<p class="note" style="padding:6px 0">Add a weigh-in above and the math appears.</p>'; return; }
+  const [a, b] = range(), days = listDays(a, b).filter(d => d < today()), gran = granFor(days.length);
+  const est = {}; let nOk = 0;
+  for (const d of days) { const w = weightOn(ws, d), e = w && estimateDay(d, w[1], P); if (e) { est[d] = e; nOk++; } }
+  if (!nOk) { h.innerHTML = '<p class="note" style="padding:6px 0">No days with Apple Watch energy data in this range.</p>'; return; }
+  const avg = f => { let t = 0, c = 0; for (const d in est) { t += f(est[d]); c++; } return t / c; };
+  const aT = avg(e => e.restA + e.actA), fT = avg(e => e.restM + e.actF), hT = avg(e => e.restM + e.actH);
+  const aR = avg(e => e.restA), mR = avg(e => e.restM), aA = avg(e => e.actA), fA = avg(e => e.actF), hA = avg(e => e.actH);
+  const pc = (v, base) => { const p = (v - base) / base * 100; return (p > 0 ? '+' : p < 0 ? '−' : '') + Math.abs(Math.round(p)) + '% vs Apple'; };
+  const last = ws[ws.length - 1], stale = dnum(b) - dnum(last[0]) > 60;
+  const cell = (l, v, s) => `<div class="stat"><div class="l">${l}</div><div class="v">${n0(v)}<small>Cal/day</small></div><div class="d">${s || '&nbsp;'}</div></div>`;
+  const wnote = stale ? `<p class="meta">Your latest weigh-in is ${n1(last[1])} lb from ${fmtDate(last[0])}. The math uses it for every day since, so add a current one for a better estimate.</p>` : '';
+  h.innerHTML = `<p class="lede">${n0(nOk)} days with Apple Watch data in this range (today excluded). Profile from your export: ${P.sex || 'unknown sex'}, ${Math.floor(ageOn(P.dob, b))}, ${Math.floor(Math.round(P.heightCm / 2.54) / 12)} ft ${Math.round(P.heightCm / 2.54) % 12} in.</p>
+    <div class="stats">${cell('Apple, total', aT, 'resting ' + n0(aR) + ' + active ' + n0(aA))}${cell('My formula, total', fT, pc(fT, aT) + ' · resting ' + n0(mR) + ' + active ' + n0(fA))}${cell('My heart-rate, total', hT, pc(hT, aT) + ' · resting ' + n0(mR) + ' + active ' + n0(hA))}</div>${wnote}
+    <div id="calcharts" style="margin-top:22px"></div>
+    <details class="how2"><summary>How my math works</summary><p class="meta">Resting uses the Mifflin-St Jeor formula with your weight, height and age. Formula active adds walking and running from each day’s distance (about 0.53 Cal per kg per km walking, 1.0 running, using your logged runs for the running part) plus other workouts as MET × time. Heart-rate active uses the Keytel formula over the minutes your heart rate was 100 or higher, minus resting for those minutes, so it only sees exercise-level effort and misses light all-day movement. These are estimates, and so are Apple’s. The real check is your weight trend against what you eat.</p></details>`;
+  const day = f => bucketed(days, gran, d => est[d] ? f(est[d]) : null);
+  const ap = day(e => e.restA + e.actA), fo = day(e => e.restM + e.actF), hr = day(e => e.restM + e.actH);
+  const sa = day(e => e.actA), sf = day(e => e.actF), sh = day(e => e.actH);
+  const L = (name, color, vals, extra) => Object.assign({name, color, type: 'line', values: vals, fmt: x => n0(x) + ' Cal'}, extra);
+  const s1 = [L('Apple', 'var(--ink)', ap.vals, {thin: true}), L('My formula', 'var(--c-steps)', fo.vals), L('My heart-rate', 'var(--c-hr)', hr.vals)];
+  const s2 = [L('Apple active', 'var(--ink)', sa.vals, {thin: true}), L('My formula active', 'var(--c-steps)', sf.vals), L('My heart-rate active', 'var(--c-hr)', sh.vals)];
+  for (let i = charts.length - 1; i >= 0; i--) if (charts[i].id === 'c-cal' || charts[i].id === 'c-act') charts.splice(i, 1);
+  const sub = gran === 'day' ? 'Daily' : 'Average per day';
+  $('#calcharts').innerHTML = `<div class="grid2">${block('c-cal', 'Total burned', sub, s1)}${block('c-act', 'Active only', sub, s2)}</div>`;
+  mount('c-cal', {title: 'Total burned', gran, labels: ap.labels, series: s1, zero: false, yFmt: n0});
+  mount('c-act', {title: 'Active only', gran, labels: sa.labels, series: s2, yFmt: n0});
+}
+document.addEventListener('submit', ev => {
+  if (ev.target.id !== 'wtform') return; ev.preventDefault();
+  const fd = new FormData(ev.target), lb = parseFloat(fd.get('lb')), d = fd.get('d');
+  if (!(lb >= 50 && lb <= 900) || !/^\d{4}-\d\d-\d\d$/.test(d)) return;
+  for (const o of F.weights.filter(w => w.d === d)) F.tomb.push(o.id);               // one typed weigh-in per day: the new one replaces it
+  F.weights = F.weights.filter(w => w.d !== d); F.weights.push({id: uid(), d, lb: Math.round(lb * 10) / 10});
+  calPaintAll(); foodDirty();
+});
 
 function page() {
   const [a, b] = range(), days = listDays(a, b), gran = granFor(days.length);
@@ -1263,15 +1378,12 @@ function page() {
   if (wser.length) add('c-wk', {title: 'Workout time', labels: wl, series: wser, yFmt: n0, totFmt: x => n0(x) + ' min'});
 
   // body & food
-  const wt = bucketed(days, gran, d => { const p = M.weights.find(q => q[0] === d); return p ? p[1] : null; }, 'last');
-  const hasW = wt.vals.filter(v => v != null).length >= 2;
-  if (hasW) add('c-wt', {title: 'Weight', zero: false, labels: wt.labels, series: [ser('Weight', 'var(--c-weight)', 'line', wt.vals, {fmt: x => n1(x) + ' lb', connect: true, dots: true})], yFmt: n0});
   const sl = B(d => { const v = M.daily[d]?.sleep; return v == null ? null : v / 60; });
   const hasS = sl.vals.filter(v => v != null).length >= 3;
   if (hasS) add('c-sleep', {title: 'Sleep', labels: sl.labels, series: [ser('Hours asleep', 'var(--c-sleep)', 'bar', sl.vals, {fmt: x => n1(x) + ' h'})], yFmt: x => n1(x).replace(/\.0$/, '')});
 
   const blk = (id, sub) => { const c = pend.find(p => p[0] === id)[1]; return block(id, c.title, sub === undefined ? gw : sub, c.series); };
-  const bodyBits = [hasW ? blk('c-wt', 'Weigh-ins') : '', hasS ? blk('c-sleep') : ''].filter(Boolean);
+  const bodyBits = [hasS ? blk('c-sleep') : ''].filter(Boolean);
 
   const html = `
   <section class="first" aria-labelledby="h-over"><h2 id="h-over">${fmtDate(a)} – ${fmtDate(b)}</h2>
@@ -1297,11 +1409,18 @@ function page() {
     ${wser.length ? `<div style="margin-bottom:26px">${blk('c-wk', 'Minutes per ' + (gran === 'day' ? 'day' : gran))}</div>` : ''}
     <div id="wkhost">${wkViewHTML(a, b)}</div></section>
 
+  <section aria-labelledby="h-wt"><h2 id="h-wt">Weight</h2>
+    <p class="lede">Add weigh-ins here; Health’s own are included. The calorie math below uses the weigh-in nearest each day.</p>
+    <div id="wthost"></div></section>
+
+  <section aria-labelledby="h-cal"><h2 id="h-cal">Calories burned: Apple vs my math</h2>
+    <div id="calhost"></div></section>
+
   <section aria-labelledby="h-food"><h2 id="h-food">Food</h2>
     <p class="lede">Log what you eat and compare it with what your watch says you burned. Calories burned = resting + active. Your food log is stored separately from the Health import.</p>
     <div id="foodhost"></div></section>
 
-  ${bodyBits.length ? `<section aria-labelledby="h-body"><h2 id="h-body">Body and sleep</h2>
+  ${bodyBits.length ? `<section aria-labelledby="h-body"><h2 id="h-body">Sleep</h2>
     <p class="lede">Only what your apps wrote to Apple Health — these are usually sparse.</p><div class="grid2">${bodyBits.join('')}</div></section>` : ''}
 
   <footer>
