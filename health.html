@@ -506,7 +506,7 @@ async function loadAny(file, onProgress) {
    Opened as a file on your computer: the summary is kept in this browser.
    Served over https (GitHub Pages): nothing is kept in the browser. The summary lives in your
    OneDrive behind the Microsoft sign-in (section 4b), the same way the Collector Overview page works. */
-const PAGE_VERSION = '2026-11-01g';                       // bump on every change, same habit as the Overview page; shown next to the title
+const PAGE_VERSION = '2026-11-01i';                       // bump on every change, same habit as the Overview page; shown next to the title
 const CLOUD = location.protocol === 'https:';
 const KEY = 'healthlog.summary.v1';
 const Store = {
@@ -977,7 +977,7 @@ function workoutsHTML(a, b) {
    Open Food Facts databases straight from the browser; typing your own calories always works. */
 const FOOD_KEY = 'healthlog.food.v1';
 const FOOD_ITEM = '/me/drive/root:/Documents/health-log/food-log.json';
-const emptyF = () => ({v: 1, entries: [], favs: [], tomb: [], favTomb: [], weights: []});
+const emptyF = () => ({v: 1, entries: [], favs: [], tomb: [], favTomb: [], weights: [], cups: {}});
 let F = emptyF();
 const MEALS = ['Breakfast', 'Lunch', 'Dinner', 'Snack'], MEAL_T = {Breakfast: '08:00', Lunch: '12:30', Dinner: '18:30', Snack: '15:30'};
 const pad2 = n => String(n).padStart(2, '0');
@@ -993,7 +993,7 @@ S.view = location.hash === '#favorites' ? 'fav' : 'main';        // #favorites o
 S.fav = {draft: null};
 S.food = {target: 'day', editFav: null, day: today(), results: null, busy: false, err: '', keyHint: false, pick: null, manual: false, save: '', tm: 0};
 
-const normalizeF = j => { const a = x => Array.isArray(x) ? x : []; return {v: 1, entries: a(j && j.entries), favs: a(j && j.favs), tomb: a(j && j.tomb), favTomb: a(j && j.favTomb), weights: a(j && j.weights)}; };
+const normalizeF = j => { const a = x => Array.isArray(x) ? x : []; return {v: 1, entries: a(j && j.entries), favs: a(j && j.favs), tomb: a(j && j.tomb), favTomb: a(j && j.favTomb), weights: a(j && j.weights), cups: j && j.cups && typeof j.cups === 'object' && !Array.isArray(j.cups) ? j.cups : {}}; };
 function mergeF(a, b) {                                   // two devices may both have added things: keep both, honor deletes
   const tomb = [...new Set([...a.tomb, ...b.tomb])], dead = new Set(tomb), em = new Map();
   for (const e of [...b.entries, ...a.entries]) if (!dead.has(e.id)) em.set(e.id, e);
@@ -1001,7 +1001,8 @@ function mergeF(a, b) {                                   // two devices may bot
   for (const f of [...b.favs, ...a.favs]) if (!fdead.has(f.id)) byId.set(f.id, f);        // same id = same favorite (an edit replaces it); this device's copy wins
   const fm = new Map(); for (const f of byId.values()) if (!fm.has(favKey(f))) fm.set(favKey(f), f);   // two devices that made the same favorite separately keep one
   const wm = new Map(); for (const w of [...b.weights, ...a.weights]) if (!dead.has(w.id)) wm.set(w.id, w);
-  return {v: 1, entries: [...em.values()], favs: [...fm.values()], tomb, favTomb, weights: [...wm.values()]};
+  const cups = {...b.cups}; for (const [k, c] of Object.entries(a.cups)) if (!cups[k] || (c.t || 0) >= (cups[k].t || 0)) cups[k] = c;      // grams-per-cup answers: newest wins per food
+  return {v: 1, entries: [...em.values()], favs: [...fm.values()], tomb, favTomb, weights: [...wm.values()], cups};
 }
 async function foodLoad() {
   if (S.food.tm) { clearTimeout(S.food.tm); S.food.tm = 0; await foodPersist(); }
@@ -1064,8 +1065,9 @@ function foodDayHTML() {
 function pickHTML() {
   const p = S.food.pick, it = p.item;
   return `<div class="pick"><div class="frow"><input id="pickname" class="in wide" value="${esc(p.name != null ? p.name : (it.brand ? it.name + ' (' + it.brand + ')' : it.name))}" aria-label="Name (you can rename it)"><small>${it.src}</small></div>
-    <div class="frow"><input id="pickqty" class="in num" type="number" min="0" step="any" value="${p.qty}" aria-label="Amount"><select id="pickunit" class="in" aria-label="Unit">${p.units.map((u, i) => `<option value="${i}"${i === p.ui ? ' selected' : ''}>${esc(u.label)}</option>`).join('')}</select>
+    <div class="frow"><input id="pickqty" class="in num" type="number" min="0" step="any" value="${p.qty}" aria-label="Amount"><select id="pickunit" class="in" aria-label="Unit">${unitOpts(p)}</select>
     ${S.food.target === 'draft' ? '' : `<select id="pickmeal" class="in" aria-label="${S.food.target === 'fav' ? 'Usual meal' : 'Meal'}">${MEALS.map(m => `<option${m === p.meal ? ' selected' : ''}>${m}</option>`).join('')}</select>`}</div>
+    ${p.cup && p.cup.src !== 'usda' ? `<div class="frow"><label class="meta">1 cup of this weighs <input id="pickcupg" class="in num" type="number" min="0" step="any" value="${p.cup.g > 0 ? rnd(p.cup.g, 1) : ''}" placeholder="grams" style="width:90px" aria-label="Grams in one cup"> g${p.cup.src === 'table' ? ' (rough estimate; change it if you know better)' : p.cup.src === 'saved' ? ' (saved on this device)' : ' (needed for cups; type it once, it is remembered)'}</label></div>` : ''}
     <p class="meta" id="pickcalc" style="margin:0 0 12px"></p>
     ${S.food.target === 'day' ? `<div class="frow"><label><input type="checkbox" id="pickfav"${p.fav ? ' checked' : ''}> Also save as a favorite (this amount = one serving)</label></div>
     <div class="frow"><button class="btn solid" data-fa="addpick">Add to ${esc(fmtDate(S.food.day, {weekday: 'short', month: 'short', day: 'numeric'}))}</button><button class="btn" data-fa="favonly">Save as favorite only</button><button class="lnk" data-fa="cancel">Cancel</button></div>`
@@ -1174,25 +1176,46 @@ async function loadPortions(item) {
     const pk0 = 'p' + item.fdc;
     const j = memo.get(pk0) || await fetchJson(`https://api.nal.usda.gov/fdc/v1/food/${item.fdc}?api_key=${encodeURIComponent(Store.pref('fdcKey') || 'DEMO_KEY')}`);
     memo.set(pk0, j);
-    const seen = new Set(), ps = [];
+    const seen = new Set(), ps = []; let cupUsda = 0;
     for (const p of j.foodPortions || []) {
       if (!(p.gramWeight > 0)) continue;
       const amt = p.amount > 0 ? p.amount : 1;
       const desc = String(p.modifier || p.portionDescription || (p.measureUnit && p.measureUnit.name !== 'undetermined' ? p.measureUnit.name : '') || 'portion').trim();
       const label = `${desc} (${rnd(p.gramWeight)} g)`;
+      if (/^cups?$/i.test(desc) && !cupUsda) { cupUsda = p.gramWeight / amt; continue; }      // a plain cup portion feeds the cup/tbsp/tsp units instead
       if (!seen.has(label)) { seen.add(label); ps.push({label, g: p.gramWeight / amt}); }
     }
     const pk = S.food.pick;
-    if (!ps.length || !pk || pk.item !== item) return;
-    pk.units = [...ps.slice(0, 8), ...pk.units.filter(u => !seen.has(u.label))];
-    if (!pk.touched) { pk.ui = 0; pk.qty = 1; }
-    else { pk.ui = Math.min(pk.ui + ps.slice(0, 8).length, pk.units.length - 1); }
+    if ((!ps.length && !cupUsda) || !pk || pk.item !== item) return;
+    pk.units = [...ps.slice(0, 8), ...pk.units.filter(u => u.hh || !seen.has(u.label))];
+    if (cupUsda && pk.cup.src !== 'saved') setCup(pk, cupUsda, 'usda');
+    if (ps.length) { if (!pk.touched) { pk.ui = 0; pk.qty = 1; } else { pk.ui = Math.min(pk.ui + ps.slice(0, 8).length, pk.units.length - 1); } }
+    else if (!pk.touched) { pk.ui = pk.units.findIndex(u => u.hh === 1); pk.qty = 1; }
+    else pk.ui += 0;
     foodPaintRes();
   } catch (e) { /* grams still work */ }
 }
+/* household measures: cup / tbsp / tsp. Grams per cup comes from (1) a weight you saved for this food on this device, (2) the USDA cup portion once loaded, (3) the rough table below, else you type it once. */
+const CUPG = [[/rice.*cooked|cooked.*rice/i, 158], [/rice/i, 185], [/oat.*(cooked|prepared)|oatmeal/i, 234], [/oat/i, 81], [/quinoa/i, 185], [/pasta|spaghetti|macaroni|noodle/i, 140], [/beans?.*cooked|cooked.*beans?|lentil/i, 172], [/peanut butter/i, 258], [/almond/i, 143], [/walnut/i, 117], [/raisin/i, 145], [/blueberr/i, 148], [/strawberr/i, 166], [/banana/i, 225], [/applesauce/i, 244], [/orange juice/i, 248], [/cottage cheese/i, 226], [/yogurt|yoghurt/i, 245], [/cheese.*(shred|grated)|(shred|grated).*cheese/i, 113], [/milk/i, 244], [/water/i, 237], [/flour/i, 125], [/brown sugar/i, 220], [/sugar/i, 200], [/butter/i, 227], [/\boil\b/i, 218], [/honey/i, 340], [/broccoli/i, 91], [/spinach/i, 30], [/carrot/i, 128], [/corn/i, 154], [/peas/i, 145]];
+const cupKey = it => 'cupg.' + String(it.fdc || it.name).toLowerCase().slice(0, 60);
+function cupLookup(it) {
+  const c = F.cups[cupKey(it)]; if (c && c.g > 0) return {g: +c.g, src: 'saved'};
+  const s = parseFloat(Store.pref(cupKey(it))); if (s > 0) return {g: s, src: 'saved'};              // older per-device value from page 2026-11-01h
+  const t = CUPG.find(r => r[0].test(it.name)); if (t) return {g: t[1], src: 'table'};
+  return {g: 0, src: 'ask'};
+}
+function hhUnits(g, src) {
+  const L = (n, x) => g > 0 ? `${n} (${src === 'table' ? '≈' : ''}${rnd(x, x < 10 ? 1 : 0)} g)` : `${n} (set weight below)`;
+  return [['cup', 1], ['tbsp', 1 / 16], ['tsp', 1 / 48]].map(([n, f]) => ({label: L(n, g * f), g: g * f, hh: f}));
+}
+function setCup(pk, g, src) {                                     // swaps the three household units in place so indexes (and the selected unit) stay put
+  pk.cup = {g, src}; const h = hhUnits(g, src); let i = 0;
+  pk.units = pk.units.map(u => u.hh ? h[i++] : u);
+}
+const unitOpts = p => p.units.map((u, i) => `<option value="${i}"${i === p.ui ? ' selected' : ''}>${esc(u.label)}</option>`).join('');
 function startPick(item) {
-  const units = item.serving ? [item.serving, {label: 'grams', g: 1}] : [{label: 'grams', g: 1}];
-  S.food.pick = {item, units, ui: 0, qty: item.serving ? 1 : 100, meal: mealFor(nowHM()), touched: false};
+  const c = cupLookup(item), units = [...(item.serving ? [item.serving] : []), ...hhUnits(c.g, c.src), {label: 'grams', g: 1}];
+  S.food.pick = {item, units, cup: c, ui: item.serving ? 0 : units.length - 1, qty: item.serving ? 1 : 100, meal: mealFor(nowHM()), touched: false};
   foodPaintRes();
   if (item.src === 'USDA' && item.fdc) loadPortions(item);
 }
@@ -1201,6 +1224,8 @@ function readPick() {
   const q = parseFloat($('#pickqty') && $('#pickqty').value), u = parseInt($('#pickunit') && $('#pickunit').value, 10), m = $('#pickmeal') && $('#pickmeal').value;
   if (isFinite(q)) p.qty = q; else if ($('#pickqty') && $('#pickqty').value === '') p.qty = 0;
   if (isFinite(u)) p.ui = u; if (m) p.meal = m;
+  const cg = $('#pickcupg'), cv = cg ? parseFloat(cg.value) : 0;
+  if (cv > 0 && p.cup && Math.abs(cv - p.cup.g) > 0.001) { setCup(p, cv, 'saved'); F.cups[cupKey(p.item)] = {g: cv, t: Date.now()}; foodDirty(); const so = $('#pickunit'); if (so) { so.innerHTML = unitOpts(p); so.value = String(p.ui); } }
   const nm = $('#pickname'); if (nm) p.name = nm.value;
   const fv = $('#pickfav'); if (fv) p.fav = fv.checked;
   return p;
@@ -1212,12 +1237,13 @@ function pickValues(p) {
 function pickCalc(touch = true) {
   const p = readPick(); if (!p) return; if (touch) p.touched = true;
   const v = pickValues(p), el = $('#pickcalc');
+  if (el && v.u.hh && !(v.u.g > 0)) { el.textContent = 'Type how many grams one cup of this food weighs (box above) to get calories.'; return; }
   if (el) el.textContent = `${rnd(v.g)} g · ${rnd(v.kcal)} Cal · protein ${rnd(v.p, 1)} g · carbs ${rnd(v.c, 1)} g · fat ${rnd(v.f, 1)} g`;
 }
 function addEntry(e) { F.entries.push(e); foodPaintDay(); foodPaintFavs(); foodDirty(); }
 function addFromPick(favOnly) {
   const p = readPick(); if (!p || !(p.qty > 0)) return;
-  const v = pickValues(p), it = p.item, day = S.food.day;
+  const v = pickValues(p), it = p.item, day = S.food.day; if (!(v.g > 0)) return;
   const name = (p.name || '').trim() || (it.brand ? `${it.name} (${it.brand})` : it.name);
   const amt = v.u.g === 1 && v.u.label === 'grams' ? `${rnd(p.qty, 1)} g` : `${rnd(p.qty, 2)} × ${v.u.label}`;
   const e = {id: uid(), d: day, t: timeFor(day, p.meal), meal: p.meal, name, amt, kcal: rnd(v.kcal), p: rnd(v.p, 1), c: rnd(v.c, 1), f: rnd(v.f, 1), src: it.src};
@@ -1339,7 +1365,7 @@ document.addEventListener('submit', ev => {
   if (ev.target.id === 'foodform') { ev.preventDefault(); foodSearch($('#foodq').value.trim()); }
   else if (ev.target.id === 'manualform') { ev.preventDefault(); manualAdd(new FormData(ev.target)); }
 });
-document.addEventListener('input', ev => { if (ev.target.id === 'favqty') S.food.fq = parseFloat(ev.target.value) || 1; if (ev.target.id === 'pickqty' || ev.target.id === 'pickunit' || ev.target.id === 'pickmeal' || ev.target.id === 'pickname' || ev.target.id === 'pickfav') pickCalc(); });
+document.addEventListener('input', ev => { if (ev.target.id === 'favqty') S.food.fq = parseFloat(ev.target.value) || 1; if (ev.target.id === 'pickqty' || ev.target.id === 'pickunit' || ev.target.id === 'pickmeal' || ev.target.id === 'pickname' || ev.target.id === 'pickfav' || ev.target.id === 'pickcupg') pickCalc(); });
 document.addEventListener('change', ev => { if (ev.target.id === 'fooddate' && ev.target.value) { S.food.day = ev.target.value; foodPaintDay(); } });
 
 /* ---------- 6c. weight + "my math" calorie estimate ----------
