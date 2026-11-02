@@ -517,7 +517,7 @@ async function loadAny(file, onProgress) {
    Opened as a file on your computer: the summary is kept in this browser.
    Served over https (GitHub Pages): nothing is kept in the browser. The summary lives in your
    OneDrive behind the Microsoft sign-in (section 4b), the same way the Collector Overview page works. */
-const PAGE_VERSION = '2026-11-01l';                       // bump on every change, same habit as the Overview page; shown next to the title
+const PAGE_VERSION = '2026-11-02a';                       // bump on every change, same habit as the Overview page; shown next to the title
 const CLOUD = location.protocol === 'https:';
 const KEY = 'healthlog.summary.v1';
 const Store = {
@@ -1128,7 +1128,7 @@ function foodPaintAll() {
   Object.assign(S.food, {target: 'day', pick: null, manual: false, results: null, editFav: null, err: ''});
   h.innerHTML = `<div class="daynav"><button class="btn" data-fa="dayprev" aria-label="Previous day">‹</button><input type="date" id="fooddate" value="${S.food.day}" aria-label="Food log day"><button class="btn" data-fa="daynext" aria-label="Next day">›</button><button class="lnk" data-fa="daytoday">Today</button></div>
     <div id="foodday"></div>
-    <div class="foodadd"><form id="foodform" class="frow"><input id="foodq" class="in" type="search" placeholder="Search foods: banana, oatmeal, Greek yogurt" aria-label="Search foods" autocomplete="off"><button class="btn solid" type="submit">Search</button><button class="lnk" type="button" data-fa="manual">Enter calories myself</button></form><div id="foodres"></div></div>
+    <div class="foodadd"><form id="foodform" class="frow"><input id="foodq" class="in" type="search" placeholder="Search foods, or type a barcode number" aria-label="Search foods" autocomplete="off"><button class="btn solid" type="submit">Search</button><button class="btn" type="button" data-fa="scan">Scan barcode</button><button class="lnk" type="button" data-fa="manual">Enter calories myself</button></form><div id="foodres"></div></div>
     <div id="foodfavs"></div><p class="meta" id="foodstat" role="status"></p><div style="height:26px"></div><div id="foodchart"></div>`;
   foodPaintDay(); foodPaintRes(); foodPaintFavs(); foodPaintStat(); calPaintAll();
   if (S.qa === 'food') { S.qa = ''; const q = $('#foodq'); if (q) q.focus(); }          // came from the home "+ Add food" button
@@ -1174,8 +1174,68 @@ function offItem(p) {
     per100: {kcal: +kcal, p: +n['proteins_100g'] || 0, c: +n['carbohydrates_100g'] || 0, f: +n['fat_100g'] || 0},
     serving: p.serving_quantity > 0 ? {label: `serving (${p.serving_size || rnd(p.serving_quantity) + ' g'})`, g: +p.serving_quantity} : null};
 }
+/* barcode: typed digits (8-14) or camera scan. Open Food Facts by code + USDA Branded (gtinUpc) in parallel. */
+const stripZ = c => String(c || '').replace(/^0+/, '');
+async function barcodeLookup(code) {
+  const fs = S.food;
+  Object.assign(fs, {busy: true, err: '', keyHint: false, manual: false, pick: null, results: null}); foodPaintRes();
+  const key = fdcKey() || 'DEMO_KEY', e = encodeURIComponent, ck = 'bc|' + code + '|' + (key === 'DEMO_KEY' ? 0 : 1);
+  if (memo.has(ck)) { fs.results = memo.get(ck); fs.busy = false; return foodPaintRes(); }
+  const [o, u] = await Promise.allSettled([
+    fetchJson(`https://world.openfoodfacts.org/api/v2/product/${e(code)}.json?fields=${e('code,product_name,brands,serving_size,serving_quantity,nutriments')}`),
+    fetchJson(`https://api.nal.usda.gov/fdc/v1/foods/search?query=${e(code)}&pageSize=10&dataType=Branded&api_key=${e(key)}`)
+  ]);
+  const items = [], errs = [];
+  if (o.status === 'fulfilled') { const it = o.value && o.value.status === 1 && o.value.product ? offItem(o.value.product) : null; if (it) items.push(it); }
+  else if (!/status 404/.test(o.reason.message)) errs.push('Open Food Facts ' + o.reason.message);
+  if (u.status === 'fulfilled') items.push(...(u.value.foods || []).filter(f => stripZ(f.gtinUpc) === stripZ(code)).map(usdaItem).filter(Boolean));
+  else { errs.push('USDA ' + u.reason.message); fs.keyHint = u.reason.message === 'limit reached'; }
+  fs.results = items; fs.busy = false; if (items.length && !errs.length) memo.set(ck, items);
+  fs.err = !items.length ? (errs.length ? `Barcode lookup is not available right now (${errs.join('; ')}).` : `No product found for barcode ${code}. Try the name instead, or enter calories yourself.`)
+    : errs.length ? `Some results are missing (${errs.join('; ')}).` : '';
+  foodPaintRes();
+}
+let scanStop = null;
+function scanClose() { if (scanStop) { try { scanStop(); } catch (x) {} scanStop = null; } const h = $('#scanbox'); if (h) h.remove(); }
+async function scanOpen() {
+  scanClose();
+  const host = $('#foodres'); if (!host) return;
+  S.food.pick = null; S.food.manual = false; S.food.err = ''; S.food.results = null; foodPaintRes();
+  host.insertAdjacentHTML('afterbegin', '<div id="scanbox"><video id="scanvid" playsinline muted style="width:100%;max-width:420px;border-radius:8px;background:#000"></video><p class="meta" id="scanmsg">Starting camera… point it at the barcode.</p><button class="btn" type="button" data-fa="scanstop">Cancel</button></div>');
+  const msg = t => { const m = $('#scanmsg'); if (m) m.textContent = t; };
+  let stream = null, alive = true;
+  scanStop = () => { alive = false; if (stream) stream.getTracks().forEach(t => t.stop()); };
+  const done = code => { scanClose(); const q = $('#foodq'); if (q) q.value = code; barcodeLookup(code); };
+  try {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('camera not available on this page');
+    stream = await navigator.mediaDevices.getUserMedia({video: {facingMode: {ideal: 'environment'}}, audio: false});
+    const v = $('#scanvid'); if (!v || !alive) return scanClose();
+    v.srcObject = stream; await v.play();
+    msg('Point the camera at the barcode.');
+    if ('BarcodeDetector' in window) {
+      const det = new BarcodeDetector({formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e']});
+      (async function loop() { while (alive) { try { const r = await det.detect(v); if (r.length && alive) return done(r[0].rawValue); } catch (x) {} await new Promise(r => setTimeout(r, 250)); } })();
+    } else {
+      msg('Loading scanner…');
+      if (!window.ZXing) await new Promise((ok, no) => { const sc = document.createElement('script'); sc.src = 'https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js'; sc.onload = ok; sc.onerror = () => no(new Error('scanner library could not load')); document.head.appendChild(sc); });
+      if (!alive) return;
+      const rd = new ZXing.MultiFormatReader(), hints = new Map();
+      hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [ZXing.BarcodeFormat.EAN_13, ZXing.BarcodeFormat.EAN_8, ZXing.BarcodeFormat.UPC_A, ZXing.BarcodeFormat.UPC_E]);
+      hints.set(ZXing.DecodeHintType.TRY_HARDER, true); rd.setHints(hints);
+      const cv = document.createElement('canvas'), cx = cv.getContext('2d', {willReadFrequently: true});
+      msg('Point the camera at the barcode.');
+      (async function loop() { while (alive) {
+        if (v.videoWidth) { cv.width = v.videoWidth; cv.height = v.videoHeight; cx.drawImage(v, 0, 0);
+          try { const lum = new ZXing.HTMLCanvasElementLuminanceSource(cv), bm = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(lum)); const r = rd.decode(bm); if (r && alive) return done(r.getText()); } catch (x) { /* none in this frame */ } }
+        await new Promise(r => setTimeout(r, 200)); } })();
+    }
+  } catch (x) {
+    scanClose(); S.food.err = `Camera scan did not work (${x.message || x.name}). You can type the number under the barcode instead.`; foodPaintRes();
+  }
+}
 async function foodSearch(q) {
   const fs = S.food; if (!q) return;
+  if (/^\d{8,14}$/.test(q.replace(/[\s-]/g, ''))) return barcodeLookup(q.replace(/[\s-]/g, ''));
   Object.assign(fs, {busy: true, err: '', keyHint: false, manual: false, pick: null, results: null}); foodPaintRes();
   const key = fdcKey() || 'DEMO_KEY', e = encodeURIComponent, ck = q.toLowerCase() + '|' + (key === 'DEMO_KEY' ? 0 : 1);
   if (memo.has(ck)) { fs.results = memo.get(ck); fs.busy = false; fs.err = ''; return foodPaintRes(); }
@@ -1326,7 +1386,9 @@ function foodAct(a, ds) {
     case 'dayprev': return setDay(addDays(fs.day, -1));
     case 'daynext': return setDay(addDays(fs.day, 1));
     case 'daytoday': return setDay(today());
-    case 'manual': fs.manual = true; fs.pick = null; fs.err = ''; fs.results = null; foodPaintRes(); { const n = $('#manualform input[name=name]'); if (n) n.focus(); } return;
+    case 'scan': return scanOpen();
+    case 'scanstop': scanClose(); return;
+    case 'manual': scanClose(); fs.manual = true; fs.pick = null; fs.err = ''; fs.results = null; foodPaintRes(); { const n = $('#manualform input[name=name]'); if (n) n.focus(); } return;
     case 'cancel': fs.manual = false; fs.pick = null; fs.editFav = null; foodPaintRes(); return;
     case 'pick': return startPick(fs.results[+ds.i]);
     case 'addpick': return addFromPick(false);
