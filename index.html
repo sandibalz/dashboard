@@ -246,7 +246,7 @@ function rowsOf(o) {
     const a = (L, k) => (L || []).slice(0, 3).filter(e => e[k] != null).map(e => [e[k], e.gain || 0]);
     return Object.assign({ id, n: p.name, file: p.file, ver: p.profileVersion, en: p.enabled !== false ? 1 : 0, ord: p.order || 0, st: p.lastStatus || '', lastAt: p.lastRunAt, nextAt: p.nextRunAt,
       gc: a(p.gcLast3, 'gc'), sc: a(p.scLast3, 'sc'), why: p.softFailReason || '', rt: p.lastRunTime || '', pending: !s,
-      canBal: !!p.canReadBalance, liveGC: p.liveGC, liveSC: p.liveSC, liveAt: p.liveAt, liveErr: p.liveErr, liveErrAt: p.liveErrAt, liveReading: !!p.liveReading },
+      canBal: !!p.canReadBalance, liveGC: p.liveGC, liveSC: p.liveSC, liveAt: p.liveAt, liveErr: p.liveErr, liveErrAt: p.liveErrAt, liveReading: !!p.liveReading, liveQueued: !!p.liveQueued },
       s || { rule: 'midnight', hrs: 24, auth: 'credentials', host: '', notes: '', steps: 1, type: '' });
   });
 }
@@ -276,13 +276,14 @@ const rowCls = p => {
   return c;
 };
 /* 11/1/26a: "Now" line = latest balance-only read (button on Free Spins sites). Blue = fine, red = the last read failed. */
-const PAGE_VERSION = '2026-11-01a';
+const PAGE_VERSION = '2026-11-01c';
 const agoTxt = ms => { const m = Math.max(0, Math.round((Date.now() - ms) / 60000)); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago'; };
 function liveLine(p, m) {
   if (!p.canBal) return '';
   const v = m === 'gc' ? p.liveGC : p.liveSC, d = m === 'gc' ? 0 : 2, has = v !== undefined && v !== null;
   const errNewer = p.liveErr && (!p.liveAt || (p.liveErrAt || 0) >= p.liveAt);
   if (p.liveReading) return '<div class="live" style="color:var(--soft)">Now ⏳ reading…</div>';
+  if (p.liveQueued) return '<div class="live" style="color:var(--soft)">Now ⏳ waiting in line…</div>';
   if (!has && !p.liveErr) return '<div class="live" style="color:#a4b0be" title="No balance read yet: tap the blue ↻ button on this row">Now —</div>';
   return `<div class="live" style="color:${errNewer ? 'var(--bad)' : '#2e86de'}" title="${esc((p.liveAt ? 'Balance read ' + dt(p.liveAt, { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '') + (errNewer ? ' LAST READ PROBLEM: ' + p.liveErr : ''))}">Now ${has ? fmt(v, d) : ''}${errNewer ? (has ? ' ⚠' : '✕') : ''}${has && p.liveAt ? ' · ' + agoTxt(p.liveAt) : ''}</div>`;
 }
@@ -317,7 +318,7 @@ function actBtns(o, p) {
     (running ? `<button class="mini ic ${cf('stop') ? 'confirm' : ''}" style="background:var(--bad)" data-act="stop" title="Stop this run">${cf('stop') ? 'Stop?' : '■'}</button>` : '') +
     (isBroken(p) ? `<button class="mini okb ic ${cf('markOk') ? 'confirm' : ''}" data-act="markOk" title="Mark OK: claim was fine, cancel the soft-fail retry and reschedule from the last run">${cf('markOk') ? 'OK?' : 'O'}</button>` : '') +
     ((!running && p.steps && p.rule !== 'manual' && p.rule !== 'notSignedUp') ? `<button class="mini ic ${cf('alreadyRan') ? 'confirm' : ''}" style="background:#1e90ff" data-act="alreadyRan" title="Already ran: push the next run out one interval from now">${cf('alreadyRan') ? 'Ran?' : 'A'}</button>` : '') +
-    (p.canBal ? `<button class="mini ic" style="background:#2e86de" data-act="readBalance" ${p.liveReading || running ? 'disabled' : ''} title="Read the current GC / SC balance now (opens the site in its own window on ${o}'s Chrome, no claim; about a minute)">${p.liveReading ? '⏳' : '↻'}</button>` : '');
+    (p.canBal ? `<button class="mini ic" style="background:#2e86de" data-act="readBalance" ${p.liveReading || p.liveQueued ? 'disabled' : ''} title="Read the current GC / SC balance now (opens the site in its own window on ${o}'s Chrome, no claim; about a minute)">${p.liveReading || p.liveQueued ? '⏳' : '↻'}</button>` : '');
 }
 function card(o, p) {
   const fn = failNote(p), qn = queuedNote(o, p);
@@ -477,7 +478,7 @@ document.addEventListener('click', async e => {
 });
 
 /* ---------- Publish: push index.html from OneDrive to GitHub (replaces opening the Script Sync extension) ---------- */
-const PUB = { repo: 'sandibalz/dashboard', branch: 'main', dir: '/Documents/collector-overview/', files: ['index.html', 'remote.html', 'watch.html'] };
+const PUB = { repo: 'sandibalz/dashboard', branch: 'main', dir: '/Documents/collector-overview/', files: ['index.html', 'remote.html', 'watch.html', 'health.html'] };
 /* ---------- Remote: the Remote-Chrome viewer (remote.html) inside this page ---------- */
 let remOpen = false;
 let remFull = false;
