@@ -121,6 +121,20 @@ tr:hover .setrow, .setrow:focus-within { display: flex; }
 .ph .chip { padding: 2px 9px; font-size: 12px; }
 .ph .tbtn { padding: 1px 8px; }
 .pb { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 8px; }
+.pane { container-type: inline-size; }
+.prows { display: flex; flex-direction: column; gap: 2px; }
+.prow { background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px; }
+.prow.row-failed { background: var(--rowfail); } .prow.row-stale { background: #ffdcdc; } .prow.row-no-recording { background: var(--rowwarn); } .prow.row-disabled { opacity: .6; }
+.pr1 { display: flex; align-items: center; gap: 8px; min-height: 22px; }
+.pr1 input[type=checkbox] { width: 14px; height: 14px; margin: 0; flex: none; }
+.pn { flex: 1 1 90px; min-width: 0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ps { flex: none; width: 108px; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl { flex: none; width: 82px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pg { flex: none; width: 92px; font-size: 11px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pa { flex: none; display: flex; gap: 3px; min-width: 59px; justify-content: flex-end; }
+.pf { color: #c0392b; font-weight: 600; font-size: 11px; padding: 0 0 2px 22px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@container (max-width: 620px) { .pg { display: none; } }
+@container (max-width: 440px) { .pl { display: none; } .ps { width: 84px; } }
 .pane .cards { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
 .pane .stale-note, .pane .err { margin: 0 0 8px; }
 #pub { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin: 12px 0; }
@@ -289,7 +303,7 @@ const rowCls = p => {
   return c;
 };
 /* 11/1/26a: "Now" line = latest balance-only read (button on Free Spins sites). Blue = fine, red = the last read failed. */
-const PAGE_VERSION = '2026-11-02a';
+const PAGE_VERSION = '2026-11-02c';
 const agoTxt = ms => { const m = Math.max(0, Math.round((Date.now() - ms) / 60000)); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago'; };
 function liveLine(p, m) {
   if (!p.canBal) return '';
@@ -389,10 +403,15 @@ function fsBlock(d) {
 }
 
 /* ---------- panes ---------- */
+function prow(o, p) {
+  const fn = failNote(p), qn = queuedNote(o, p), g1 = (a, d) => a.length ? `${fmt(a[0][0], d)} <span class="g ${gcls(a[0][1])}">${gain(a[0][1], d)}</span>` : '—';
+  const t = p.lastAt ? (dt(p.lastAt, { month: 'numeric', day: 'numeric' }) === dt(Date.now(), { month: 'numeric', day: 'numeric' }) ? dt(p.lastAt, { hour: 'numeric', minute: '2-digit' }) : dt(p.lastAt, { month: 'numeric', day: 'numeric' }) + ' ' + dt(p.lastAt, { hour: 'numeric', minute: '2-digit' })) : 'Never';
+  return `<div class="prow ${rowCls(p)}" data-id="${esc(p.id)}" title="${esc(fn || '')}"><div class="pr1"><input type="checkbox" data-act="toggle" ${p.en ? 'checked' : ''} aria-label="On"><b class="pn" title="${esc(p.n)}">${esc(p.n)}</b><span class="ps ${stCls(p)}">${esc(stTxt(p))}</span><span class="sub pl">${esc(qn || t)}</span><span class="pg">GC ${g1(p.gc, 0)}</span><span class="pg">SC ${g1(p.sc, 2)}</span><span class="pa">${actBtns(o, p)}</span></div>${fn ? `<div class="pf">⚠ ${esc(fn)}</div>` : ''}</div>`;
+}
 function paneView(o, rows) {
   const s = state[o], d = s && s.doc, f = LS.get('co.pf.' + o, 'problems');
   const act = rows.filter(p => p.en && p.steps);
-  const sets = { problems: act.filter(isProblem), running: rows.filter(isRunning), all: rows.filter(p => p.steps) };
+  const sets = { problems: act.filter(isProblem), running: rows.filter(p => p.steps && isRunning(p)), all: rows.filter(p => p.steps) };
   const up = d && Date.parse(d.updatedAt), age = up ? Date.now() - up : null, stale = age != null && age > 20 * 60000, b = rows.filter(isBroken).length;
   const chip = (k, t) => `<button class="chip ${f === k ? 'on' : ''}" data-pfilter="${k}">${t}<i>${sets[k].length}</i></button>`;
   const list = sets[sets[f] ? f : 'problems'].slice().sort((x, y) => (attentionRank(x) - attentionRank(y)) || (isOverdue(y) - isOverdue(x)) || x.n.localeCompare(y.n, undefined, { sensitivity: 'base' }));
@@ -401,7 +420,7 @@ function paneView(o, rows) {
   if (s && s.err) body += `<div class="err">${esc(s.err)}${d ? ' Showing the last copy we saw.' : ''}</div>`;
   if (stale) body += `<div class="stale-note"><b>Last reported ${span(age)} ago</b> (${lastTxt(up)}). Their PC or Chrome may be off; anything queued waits until it is back.</div>`;
   if (!d) body += `<div class="empty">${loading ? 'Loading from OneDrive…' : 'No data yet.'}</div>`;
-  else body += list.length ? `<div class="cards">${list.map(p => card(o, p)).join('')}</div>` : `<div class="empty">${empty}</div>`;
+  else body += list.length ? `<div class="prows">${list.map(p => prow(o, p)).join('')}</div>` : `<div class="empty">${empty}</div>`;
   const fsN = d && Array.isArray(d.freeSpins) ? d.freeSpins.length : 0;
   return `<section class="pane ${o === cur ? 'cur' : ''}" data-pane="${o}"><div class="ph"><b>${o}${b ? `<span class="cnt" title="${b} need attention">${b}</span>` : ''}${stale || (s && s.err) ? `<span class="cnt stale" title="Not reporting lately">!</span>` : ''}</b>` +
     `<span class="sub">${d ? `${act.length} active${d.engine ? ' · engine ' + esc(d.engine) : ''}${fsN ? ' · 🎰 ' + fsN : ''}${age != null ? ' · ' + (span(age) === '0m' ? 'just now' : span(age) + ' ago') : ''}` : ''}</span>` +
@@ -420,8 +439,10 @@ function render() {
     return `<button class="ob ${o === cur ? 'on' : ''}" role="tab" aria-selected="${o === cur}" data-owner="${o}"><b>${o}${b ? `<span class="cnt" title="${b} need attention">${b}</span>` : ''}${stale || (s && s.err) ? `<span class="cnt stale" title="Not reporting lately">!</span>` : ''}</b><small>${sub}</small></button>`;
   }).join('');
   const o = cur, s = state[o], rows = ownerRows[o], d = s && s.doc;
+  $('owners').style.display = isPanes() ? 'none' : '';
   const cnt = k => rows.filter(p => p.en && p.steps && k.test(p.st)).length;
   $('sum').innerHTML = d ? `<span><b>${rows.filter(p => p.en && p.steps).length}</b> active</span><span><b>${cnt(/^Success|^Marked/)}</b> ok</span><span><b>${cnt(/^(Not Ready|No Reward)/)}</b> waiting</span><span style="color:var(--bad)"><b>${rows.filter(isBroken).length}</b> need attention</span><span>engine ${esc(d.engine)}${d.automatorEnabled === false ? ' · <b style="color:var(--bad)">automator OFF</b>' : ''}</span>` : '';
+  if (isPanes()) $('sum').innerHTML = '';
   $('pgver').textContent = 'page ' + PAGE_VERSION + (d && d.engine ? ' · ' + cur + ' engine ' + d.engine : '') + ' · ';
   $('refreshed').textContent = (progress ? progress + ' · ' : '') + (lastRefresh ? 'refreshed ' + dt(lastRefresh, { hour: 'numeric', minute: '2-digit' }) : '');
   let notes = '';
