@@ -70,13 +70,16 @@ body.drag .hero{outline:2px dashed var(--c-steps);outline-offset:14px;border-rad
 section{padding:34px 0 18px;border-top:1px solid var(--rule)}
 section.first{border-top:0;padding-top:24px}
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:14px}
-a.tile{display:block;border:1px solid var(--rule);border-radius:14px;padding:14px 16px 12px;color:var(--ink);text-decoration:none;background:var(--bg)}
-a.tile:hover,a.tile:focus-visible{border-color:var(--ink3)}
-a.tile .tl{font-size:13px;color:var(--ink2);display:flex;justify-content:space-between;gap:8px}
-a.tile .tv{font-size:30px;font-weight:600;letter-spacing:-.03em;line-height:1.2;margin-top:2px}
-a.tile .tv small{font-size:14px;font-weight:500;color:var(--ink2);letter-spacing:0;margin-left:3px}
-a.tile .ts{font-size:12.5px;color:var(--ink3);min-height:18px}
-a.tile svg{display:block;width:100%;height:30px;margin-top:8px}
+.tile{border:1px solid var(--rule);border-radius:14px;background:var(--bg);display:flex;flex-direction:column}
+.tile:hover,.tile:focus-within{border-color:var(--ink3)}
+a.tbody{display:block;padding:14px 16px 8px;color:var(--ink);text-decoration:none;flex:1}
+.tile .tl{font-size:13px;color:var(--ink2);display:flex;justify-content:space-between;gap:8px}
+.tile .tv{font-size:30px;font-weight:600;letter-spacing:-.03em;line-height:1.2;margin-top:2px}
+.tile .tv small{font-size:14px;font-weight:500;color:var(--ink2);letter-spacing:0;margin-left:3px}
+.tile .ts{font-size:12.5px;color:var(--ink3);min-height:18px}
+.tile svg{display:block;width:100%;height:30px;margin-top:8px}
+.tqa{padding:0 16px 14px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.tqa a.btn{text-decoration:none}
 h2{font-size:22px;letter-spacing:-.015em;font-weight:650;margin:0 0 4px}
 .lede{color:var(--ink2);margin:0 0 22px;max-width:64ch;font-size:14.5px}
 .meta{color:var(--ink3);font-size:13px;margin:6px 0 0}
@@ -514,7 +517,7 @@ async function loadAny(file, onProgress) {
    Opened as a file on your computer: the summary is kept in this browser.
    Served over https (GitHub Pages): nothing is kept in the browser. The summary lives in your
    OneDrive behind the Microsoft sign-in (section 4b), the same way the Collector Overview page works. */
-const PAGE_VERSION = '2026-11-01k';                       // bump on every change, same habit as the Overview page; shown next to the title
+const PAGE_VERSION = '2026-11-01l';                       // bump on every change, same habit as the Overview page; shown next to the title
 const CLOUD = location.protocol === 'https:';
 const KEY = 'healthlog.summary.v1';
 const Store = {
@@ -1128,6 +1131,7 @@ function foodPaintAll() {
     <div class="foodadd"><form id="foodform" class="frow"><input id="foodq" class="in" type="search" placeholder="Search foods: banana, oatmeal, Greek yogurt" aria-label="Search foods" autocomplete="off"><button class="btn solid" type="submit">Search</button><button class="lnk" type="button" data-fa="manual">Enter calories myself</button></form><div id="foodres"></div></div>
     <div id="foodfavs"></div><p class="meta" id="foodstat" role="status"></p><div style="height:26px"></div><div id="foodchart"></div>`;
   foodPaintDay(); foodPaintRes(); foodPaintFavs(); foodPaintStat(); calPaintAll();
+  if (S.qa === 'food') { S.qa = ''; const q = $('#foodq'); if (q) q.focus(); }          // came from the home "+ Add food" button
 }
 function foodPaintDay() { const e = $('#foodday'); if (!e) return; e.innerHTML = foodDayHTML(); const di = $('#fooddate'); if (di) di.value = S.food.day; foodPaintChart(); }
 function foodPaintRes() { const e = $('#foodres'); if (!e) return; e.innerHTML = resHTML(); if (S.food.pick) pickCalc(false); }
@@ -1513,7 +1517,7 @@ function favScreen() {
     <p class="meta" id="foodstat" role="status">${esc(S.food.save || '')}</p>${keyHTML()}</section>`;
   favListPaint(); favBuildPaint(); foodPaintRes();
 }
-function favSetView() { const v = routeFromHash(); if (v !== S.view) { S.view = v; S.fav.draft = null; window.scrollTo(0, 0); render(); } }
+function favSetView() { const v = routeFromHash(); if (v !== S.view) { S.view = v; S.homeMsg = ''; S.fav.draft = null; window.scrollTo(0, 0); render(); } }
 window.addEventListener('hashchange', favSetView);
 document.addEventListener('input', ev => { const d = S.fav.draft; if (!d) return; if (ev.target.id === 'draftname') d.name = ev.target.value; else if (ev.target.id === 'draftmeal') d.meal = ev.target.value; });
 
@@ -1659,17 +1663,36 @@ function spark(vals, color) {                             // tiny trend line; nu
   const xy = p => (p[0] / n * 100).toFixed(1) + ',' + (27 - (hi === lo ? .5 : (p[1] - lo) / (hi - lo)) * 24).toFixed(1);
   return `<svg viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true"><polyline fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round" points="${pts.map(xy).join(' ')}"/></svg>`;
 }
+const wtForm = () => foodReady ? `<form id="homewt" class="frow" style="margin:0"><input name="lb" class="in num" type="number" min="50" max="900" step="0.1" placeholder="lb" required aria-label="Today's weight in pounds" style="width:84px"><button class="btn solid" type="submit">+ Weigh-in</button></form>` : '';
+function topFavs() {                                        // up to 3 favorites you log most (last 60 days), else the first ones
+  const cut = addDays(today(), -60), n = {}; for (const e of F.entries) if (e.fav && e.d >= cut) n[e.fav] = (n[e.fav] || 0) + 1;
+  return F.favs.map((f, i) => [f, n[f.id] || 0, i]).sort((a, b) => b[1] - a[1] || a[2] - b[2]).slice(0, 3).map(x => x[0]);
+}
+const homePaint = () => { const h = $('#homehost'); if (h) h.innerHTML = homeHTML(); };
+document.addEventListener('click', ev => {
+  const q = ev.target.closest && ev.target.closest('[data-qa]'); if (q) S.qa = q.dataset.qa;
+  const h = ev.target.closest && ev.target.closest('[data-hfav]'); if (!h) return;
+  const f = F.favs.find(x => x.id === h.dataset.hfav); if (!f || !foodReady) return;
+  S.food.day = today(); logFav(f, 1); S.homeMsg = `Logged ${f.name} (${n0(f.kcal)} Cal) for today.`; homePaint();
+});
+document.addEventListener('submit', ev => {
+  if (ev.target.id !== 'homewt') return; ev.preventDefault();
+  const lb = parseFloat(new FormData(ev.target).get('lb')), d = today(); if (!foodReady || !(lb >= 50 && lb <= 900)) return;
+  for (const o of F.weights.filter(w => w.d === d)) F.tomb.push(o.id);
+  F.weights = F.weights.filter(w => w.d !== d); F.weights.push({id: uid(), d, lb: Math.round(lb * 10) / 10});
+  S.homeMsg = `Weigh-in saved: ${n1(Math.round(lb * 10) / 10)} lb today.`; foodDirty(); homePaint();
+});
 function homeHTML() {
-  const L = M.lastAct || M.last, ds = listDays(addDays(L, -13), L), dd = d => M.daily[d] || {}, tile = (href, label, big, unit, sub, sp, color) =>
-    `<a class="tile" href="#${href}"><div class="tl"><span>${label}</span><span aria-hidden="true">›</span></div><div class="tv">${big}${unit ? `<small>${unit}</small>` : ''}</div><div class="ts">${sub || '&nbsp;'}</div>${sp ? spark(sp, color) : ''}</a>`;
+  const L = M.lastAct || M.last, ds = listDays(addDays(L, -13), L), dd = d => M.daily[d] || {}, tile = (href, label, big, unit, sub, sp, color, qa) =>
+    `<div class="tile"><a class="tbody" href="#${href}"><div class="tl"><span>${label}</span><span aria-hidden="true">›</span></div><div class="tv">${big}${unit ? `<small>${unit}</small>` : ''}</div><div class="ts">${sub || '&nbsp;'}</div>${sp ? spark(sp, color) : ''}</a>${qa ? `<div class="tqa">${qa}</div>` : ''}</div>`;
   const out = [], td = today(), io = inOut(td);
   let bd = null; for (let i = 0; i < 8 && !bd; i++) { const d = addDays(td, -i); if (M.daily[d] && inOut(d).out != null) bd = d; }
   const tds = listDays(addDays(td, -13), td);
-  out.push(tile('food', 'Calories · today', n0(io.inn || 0), 'Cal in', bd ? `Burned ${n0(inOut(bd).out)} on ${dayLabel(bd)}` : 'Tap to log food', tds.map(d => inOut(d).inn), 'var(--c-food)'));
+  out.push(tile('food', 'Calories · today', n0(io.inn || 0), 'Cal in', bd ? `Burned ${n0(inOut(bd).out)} on ${dayLabel(bd)}` : 'Tap to log food', tds.map(d => inOut(d).inn), 'var(--c-food)', `<a class="btn solid" href="#food" data-qa="food">+ Add food</a>${topFavs().map(f => `<button class="btn" data-hfav="${esc(f.id)}" title="Log one today">${esc(f.name)}</button>`).join('')}`));
   const ws = allWeights(), w = ws[ws.length - 1];
   if (w) { const p = weightOn(ws, addDays(w[0], -30)), ch = p && p[0] < w[0] ? w[1] - p[1] : null;
-    out.push(tile('weight', 'Weight', n1(w[1]), 'lb', `${dayLabel(w[0])}${ch != null ? ` · ${ch > 0 ? '+' : ch < 0 ? '−' : ''}${n1(Math.abs(ch))} lb vs 30 days before` : ''}`, ws.slice(-12).map(x => x[1]), 'var(--c-weight)')); }
-  else out.push(tile('weight', 'Weight', '—', '', 'Tap to add a weigh-in'));
+    out.push(tile('weight', 'Weight', n1(w[1]), 'lb', `${dayLabel(w[0])}${ch != null ? ` · ${ch > 0 ? '+' : ch < 0 ? '−' : ''}${n1(Math.abs(ch))} lb vs 30 days before` : ''}`, ws.slice(-12).map(x => x[1]), 'var(--c-weight)', wtForm())); }
+  else out.push(tile('weight', 'Weight', '—', '', 'Tap to add a weigh-in', null, null, wtForm()));
   const x = dd(L);
   out.push(tile('activity', `Activity · ${dayLabel(L)}`, x.steps != null ? n0(x.steps) : '—', x.steps != null ? 'steps' : '', [x.move != null ? `Move ${n0(x.move)}${x.moveGoal ? '/' + n0(x.moveGoal) : ''} Cal` : '', x.ex != null ? `Exercise ${n0(x.ex)} min` : ''].filter(Boolean).join(' · '), ds.map(d => dd(d).steps), 'var(--c-steps)'));
   const wk = M.workouts.slice().sort((p, q) => p.d < q.d ? 1 : -1), lw = wk[0], wcount = M.workouts.filter(o => o.d >= addDays(M.last, -6)).length;
@@ -1678,7 +1701,7 @@ function homeHTML() {
   if (hd) out.push(tile('heart', `Heart · ${dayLabel(hd)}`, n0(dd(hd).rhr), 'bpm resting', dd(hd).hrv != null ? `HRV ${n0(dd(hd).hrv)} ms` : '', ds.map(d => dd(d).rhr), 'var(--c-hr)'));
   let sd = null; for (let i = ds.length - 1; i >= 0 && !sd; i--) if (dd(ds[i]).sleep != null) sd = ds[i];
   if (sd) out.push(tile('sleep', `Sleep · ${dayLabel(sd)}`, n1(dd(sd).sleep / 60), 'h', '', ds.map(d => dd(d).sleep != null ? dd(d).sleep / 60 : null), 'var(--c-sleep)'));
-  return `<h2>Health log</h2><p class="lede">Latest health data is from ${fmtDate(M.last)}${M.exportDate ? ' (export ' + fmtDate(M.exportDate) + ')' : ''}; food and weight are live. Tap a tile for details and history.</p><div class="tiles">${out.join('')}</div>
+  return `<h2>Health log</h2><p class="lede">Latest health data is from ${fmtDate(M.last)}${M.exportDate ? ' (export ' + fmtDate(M.exportDate) + ')' : ''}; food and weight are live. Tap a tile for details and history.</p>${S.homeMsg ? `<p class="meta" role="status" style="margin:-10px 0 14px">${esc(S.homeMsg)}</p>` : ''}<div class="tiles">${out.join('')}</div>
     <p class="meta" style="margin-top:18px"><a class="lnk" href="#favorites">Manage favorites</a> · <a class="lnk" href="#all">Everything on one page</a></p>`;
 }
 const prog = b => `${(b.read / 1048576).toFixed(0)} MB of ${(b.total / 1048576).toFixed(0)} MB · ${n0(b.records)} records`;
