@@ -517,7 +517,7 @@ async function loadAny(file, onProgress) {
    Opened as a file on your computer: the summary is kept in this browser.
    Served over https (GitHub Pages): nothing is kept in the browser. The summary lives in your
    OneDrive behind the Microsoft sign-in (section 4b), the same way the Collector Overview page works. */
-const PAGE_VERSION = '2026-11-02d';                       // bump on every change, same habit as the Overview page; shown next to the title
+const PAGE_VERSION = '2026-11-02e';                       // bump on every change, same habit as the Overview page; shown next to the title
 const CLOUD = location.protocol === 'https:';
 const KEY = 'healthlog.summary.v1';
 const Store = {
@@ -1479,10 +1479,19 @@ document.addEventListener('change', ev => { if (ev.target.id === 'fooddate' && e
 const LB = 0.45359237, KM = 1.609344;
 const MET = {Cycling: 7.5, Swimming: 7, HighIntensityIntervalTraining: 8, TraditionalStrengthTraining: 5, FunctionalStrengthTraining: 5, CoreTraining: 4, Elliptical: 5, Rowing: 7, Yoga: 3, Pilates: 3.5, StairClimbing: 8, MixedCardio: 7, Dance: 5, Tennis: 7, Basketball: 6.5, Soccer: 7, Golf: 3.5, Cooldown: 2.5, Flexibility: 2.5, Other: 4};
 const WALKRUN = new Set(['Running', 'Walking', 'Hiking']);
-function allWeights() {                                   // [[date, lb]] sorted; weigh-ins typed here replace Health's for the same day
-  const m = new Map(); for (const [d, v] of (M ? M.weights : [])) m.set(d, {lb: v, src: 'Health'});
-  for (const w of F.weights) m.set(w.d, {lb: w.lb, src: 'entered here', id: w.id});
-  return [...m].sort((a, b) => a[0] < b[0] ? -1 : 1).map(([d, o]) => [d, o.lb, o.src, o.id]);
+const wSlot = w => w.s === 'Night' ? 'Night' : 'Morning';           // older weigh-ins have no slot: they count as Morning
+const nowSlot = () => new Date().getHours() < 12 ? 'Morning' : 'Night';
+const fmtT = s => { const m = /^(\d\d):(\d\d)$/.exec(s || ''); if (!m) return ''; const H = +m[1]; return `${H % 12 || 12}:${m[2]} ${H < 12 ? 'am' : 'pm'}`; };
+const slotSel = () => `<select name="s" class="in" aria-label="Morning or night weigh-in">${['Morning', 'Night'].map(x => `<option${x === nowSlot() ? ' selected' : ''}>${x}</option>`).join('')}</select>`;
+function weighList() {                                    // every weigh-in, oldest first: typed ones (Morning/Night) + Health's for days with none typed
+  const typed = new Set(F.weights.map(w => w.d)), o = [];
+  for (const [d, v] of (M ? M.weights : [])) if (!typed.has(d)) o.push({d, lb: v, src: 'Health', s: '', t: ''});
+  for (const w of F.weights) o.push({d: w.d, lb: w.lb, src: 'entered here', id: w.id, s: wSlot(w), t: w.t || ''});
+  return o.sort((x, y) => x.d < y.d ? -1 : x.d > y.d ? 1 : x.s === y.s ? 0 : x.s === 'Morning' ? -1 : 1);
+}
+function allWeights() {                                   // [[date, lb, src, id]] one per day (two weigh-ins on a day are averaged), sorted
+  const g = new Map(); for (const w of weighList()) { if (!g.has(w.d)) g.set(w.d, []); g.get(w.d).push(w); }
+  return [...g].sort((x, y) => x[0] < y[0] ? -1 : 1).map(([d, a]) => [d, Math.round(a.reduce((p, c) => p + c.lb, 0) / a.length * 10) / 10, a[0].src, a.length === 1 ? a[0].id : undefined]);
 }
 function weightOn(ws, d) {                                // nearest weigh-in on or before the day, else the first one
   let r = null; for (const w of ws) { if (w[0] <= d) r = w; else break; }
@@ -1510,17 +1519,40 @@ function calPaintAll() { wtPaint(); calPaint(); }
 
 function wtPaint() {
   const h = $('#wthost'); if (!h || !M) return;
-  const ws = allWeights(), [a, b] = range(), days = listDays(a, b), gran = granFor(days.length);
-  const recent = ws.slice(-6).reverse().map(w => `<tr><td>${fmtDate(w[0])}</td><td class="num">${n1(w[1])} lb</td><td>${w[2]}</td><td class="num">${w[3] ? `<button class="lnk" data-fa="wtdel" data-id="${esc(w[3])}" aria-label="Delete weigh-in">×</button>` : ''}</td></tr>`).join('');
-  h.innerHTML = `<form id="wtform" class="frow"><input name="lb" class="in num" type="number" min="50" max="900" step="0.1" placeholder="lb" required aria-label="Weight in pounds"><input name="d" class="in" type="date" value="${today()}" aria-label="Weigh-in date"><button class="btn solid" type="submit">Add weigh-in</button><span class="meta" id="wtstat" style="margin:0"></span></form>
+  const wl = weighList(), ws = allWeights(), [a, b] = range(), days = listDays(a, b), gran = granFor(days.length);
+  const recent = wl.slice(-8).reverse().map(w => `<tr><td>${fmtDate(w.d)}</td><td>${w.s ? w.s + (w.t ? ' · ' + fmtT(w.t) : '') : '—'}</td><td class="num">${n1(w.lb)} lb</td><td>${w.src}</td><td class="num">${w.id ? `<button class="lnk" data-fa="wtdel" data-id="${esc(w.id)}" aria-label="Delete weigh-in">×</button>` : ''}</td></tr>`).join('');
+  const inR = ws.filter(w => w[0] >= a && w[0] <= b), sg = x => (x > 0 ? '+' : x < 0 ? '−' : '') + n1(Math.abs(x));
+  const cell = (l, v, u, s) => `<div class="stat"><div class="l">${l}</div><div class="v">${v}<small>${u}</small></div><div class="d">${s || '&nbsp;'}</div></div>`;
+  let st = '';
+  if (inR.length >= 2) {
+    const f = inR[0], l = inR[inR.length - 1], lo = inR.reduce((p, c) => c[1] < p[1] ? c : p), hi = inR.reduce((p, c) => c[1] > p[1] ? c : p), wks = (dnum(l[0]) - dnum(f[0])) / 7;
+    st = cell('Now', n1(l[1]), 'lb', fmtDate(l[0])) + cell('Change in this range', sg(l[1] - f[1]), 'lb', `from ${n1(f[1])} on ${fmtDate(f[0])}`) +
+      (wks >= 2 ? cell('Per week', sg((l[1] - f[1]) / wks), 'lb/wk', 'average over this range') : '') + cell('Lowest', n1(lo[1]), 'lb', fmtDate(lo[0])) + cell('Highest', n1(hi[1]), 'lb', fmtDate(hi[0]));
+  }
+  if (ws.length >= 2 && S.range !== 'all') { const f = ws[0], l = ws[ws.length - 1]; st += cell('Since first weigh-in', sg(l[1] - f[1]), 'lb', `from ${n1(f[1])} on ${fmtDate(f[0])}`); }
+  h.innerHTML = `<form id="wtform" class="frow"><input name="lb" class="in num" type="number" min="50" max="900" step="0.1" placeholder="lb" required aria-label="Weight in pounds"><input name="d" class="in" type="date" value="${today()}" aria-label="Weigh-in date">${slotSel()}<button class="btn solid" type="submit">Add weigh-in</button><span class="meta" id="wtstat" style="margin:0"></span></form>
+    <p class="meta" style="margin:6px 0 0">One Morning and one Night weigh-in per day; a new one replaces the old one for that part of the day.</p>
+    ${st ? `<div class="stats" style="margin:18px 0 0">${st}</div>` : ''}
     <div id="wtchart" style="margin:18px 0"></div>
-    ${recent ? `<div class="tablewrap"><table><thead><tr><th>Date</th><th class="num">Weight</th><th>From</th><th></th></tr></thead><tbody>${recent}</tbody></table></div>` : ''}`;
-  const wt = bucketed(days, gran, d => { const p = ws.find(q => q[0] === d); return p ? p[1] : null; }, 'last');
+    ${S.range !== 'all' ? '<p class="meta">Pick <b>All</b> in the date range above to see your whole history.</p>' : ''}
+    ${recent ? `<div class="tablewrap"><table><thead><tr><th>Date</th><th>When</th><th class="num">Weight</th><th>From</th><th></th></tr></thead><tbody>${recent}</tbody></table></div>` : ''}`;
+  const byDay = new Map(ws.map(w => [w[0], w[1]]));
   for (let i = charts.length - 1; i >= 0; i--) if (charts[i].id === 'c-wt') charts.splice(i, 1);
-  if (wt.vals.filter(v => v != null).length >= 2) {
-    const series = [{name: 'Weight', color: 'var(--c-weight)', type: 'line', values: wt.vals, fmt: x => n1(x) + ' lb', connect: true, dots: true}];
-    $('#wtchart').innerHTML = block('c-wt', 'Weight', 'Weigh-ins in this range', series);
-    mount('c-wt', {title: 'Weight', zero: false, gran, labels: wt.labels, series, yFmt: n0});
+  let series = null, labels = null;
+  if (gran === 'day') {
+    const mo = new Map(), ni = new Map(); for (const w of wl) (w.s === 'Night' ? ni : mo).set(w.d, w.lb);
+    const tr = days.map(d => { let s = 0, c = 0; for (let k = 0; k < 7; k++) { const v = byDay.get(addDays(d, -k)); if (v != null) { s += v; c++; } } return c ? s / c : null; });
+    labels = days;
+    series = [{name: 'Morning', color: 'var(--c-weight)', type: 'line', values: days.map(d => mo.has(d) ? mo.get(d) : null), fmt: x => n1(x) + ' lb', connect: true, dots: true}];
+    if (days.some(d => ni.has(d))) series.push({name: 'Night', color: 'var(--c-steps)', type: 'line', values: days.map(d => ni.has(d) ? ni.get(d) : null), fmt: x => n1(x) + ' lb', connect: true, dots: true});
+    if (inR.length >= 3) series.push({name: '7-day average', color: 'var(--ink)', type: 'line', thin: true, values: tr, fmt: x => n1(x) + ' lb', connect: true});
+  } else {
+    const wt = bucketed(days, gran, d => byDay.has(d) ? byDay.get(d) : null);
+    labels = wt.labels; series = [{name: 'Average weight', color: 'var(--c-weight)', type: 'line', values: wt.vals, fmt: x => n1(x) + ' lb', connect: true, dots: true}];
+  }
+  if (series[0].values.concat(series.slice(1).flatMap(s => s.values)).filter(v => v != null).length >= 2) {
+    $('#wtchart').innerHTML = block('c-wt', 'Weight', gran === 'day' ? 'Each weigh-in, with a 7-day average' : gran === 'week' ? 'Average per week' : 'Average per month', series);
+    mount('c-wt', {title: 'Weight', zero: false, gran, labels, series, yFmt: n0});
   } else $('#wtchart').innerHTML = `<p class="note" style="padding:6px 0">Fewer than two weigh-ins in this range${ws.length ? `; the latest is ${n1(ws[ws.length - 1][1])} lb on ${fmtDate(ws[ws.length - 1][0])}` : ''}.</p>`;
 }
 
@@ -1560,8 +1592,9 @@ document.addEventListener('submit', ev => {
   if (ev.target.id !== 'wtform') return; ev.preventDefault();
   const fd = new FormData(ev.target), lb = parseFloat(fd.get('lb')), d = fd.get('d');
   if (!(lb >= 50 && lb <= 900) || !/^\d{4}-\d\d-\d\d$/.test(d)) return;
-  for (const o of F.weights.filter(w => w.d === d)) F.tomb.push(o.id);               // one typed weigh-in per day: the new one replaces it
-  F.weights = F.weights.filter(w => w.d !== d); F.weights.push({id: uid(), d, lb: Math.round(lb * 10) / 10});
+  const s = fd.get('s') === 'Night' ? 'Night' : 'Morning';
+  for (const o of F.weights.filter(w => w.d === d && wSlot(w) === s)) F.tomb.push(o.id);   // one weigh-in per day per Morning/Night: the new one replaces it
+  F.weights = F.weights.filter(w => !(w.d === d && wSlot(w) === s)); F.weights.push({id: uid(), d, s, t: d === today() ? nowHM() : '', lb: Math.round(lb * 10) / 10});
   calPaintAll(); foodDirty();
 });
 
@@ -1746,7 +1779,7 @@ function spark(vals, color) {                             // tiny trend line; nu
   const xy = p => (p[0] / n * 100).toFixed(1) + ',' + (27 - (hi === lo ? .5 : (p[1] - lo) / (hi - lo)) * 24).toFixed(1);
   return `<svg viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true"><polyline fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round" points="${pts.map(xy).join(' ')}"/></svg>`;
 }
-const wtForm = () => foodReady ? `<form id="homewt" class="frow" style="margin:0"><input name="lb" class="in num" type="number" min="50" max="900" step="0.1" placeholder="lb" required aria-label="Today's weight in pounds" style="width:84px"><button class="btn solid" type="submit">+ Weigh-in</button></form>` : '';
+const wtForm = () => foodReady ? `<form id="homewt" class="frow" style="margin:0"><input name="lb" class="in num" type="number" min="50" max="900" step="0.1" placeholder="lb" required aria-label="Today's weight in pounds" style="width:84px">${slotSel()}<button class="btn solid" type="submit">+ Weigh-in</button></form>` : '';
 function topFavs() {                                        // up to 3 favorites you log most (last 60 days), else the first ones
   const cut = addDays(today(), -60), n = {}; for (const e of F.entries) if (e.fav && e.d >= cut) n[e.fav] = (n[e.fav] || 0) + 1;
   return F.favs.map((f, i) => [f, n[f.id] || 0, i]).sort((a, b) => b[1] - a[1] || a[2] - b[2]).slice(0, 3).map(x => x[0]);
@@ -1761,9 +1794,10 @@ document.addEventListener('click', ev => {
 document.addEventListener('submit', ev => {
   if (ev.target.id !== 'homewt') return; ev.preventDefault();
   const lb = parseFloat(new FormData(ev.target).get('lb')), d = today(); if (!foodReady || !(lb >= 50 && lb <= 900)) return;
-  for (const o of F.weights.filter(w => w.d === d)) F.tomb.push(o.id);
-  F.weights = F.weights.filter(w => w.d !== d); F.weights.push({id: uid(), d, lb: Math.round(lb * 10) / 10});
-  S.homeMsg = `Weigh-in saved: ${n1(Math.round(lb * 10) / 10)} lb today.`; foodDirty(); homePaint();
+  const s = ev.target.elements.s && ev.target.elements.s.value === 'Night' ? 'Night' : 'Morning';
+  for (const o of F.weights.filter(w => w.d === d && wSlot(w) === s)) F.tomb.push(o.id);
+  F.weights = F.weights.filter(w => !(w.d === d && wSlot(w) === s)); F.weights.push({id: uid(), d, s, t: nowHM(), lb: Math.round(lb * 10) / 10});
+  S.homeMsg = `Weigh-in saved: ${n1(Math.round(lb * 10) / 10)} lb (${s.toLowerCase()}).`; foodDirty(); homePaint();
 });
 function homeHTML() {
   const L = M.lastAct || M.last, ds = listDays(addDays(L, -13), L), dd = d => M.daily[d] || {}, tile = (href, label, big, unit, sub, sp, color, qa) =>
@@ -1772,9 +1806,9 @@ function homeHTML() {
   let bd = null; for (let i = 0; i < 8 && !bd; i++) { const d = addDays(td, -i); if (M.daily[d] && inOut(d).out != null) bd = d; }
   const tds = listDays(addDays(td, -13), td);
   out.push(tile('food', 'Calories · today', n0(io.inn || 0), 'Cal in', bd ? `Burned ${n0(inOut(bd).out)} on ${dayLabel(bd)}` : 'Tap to log food', tds.map(d => inOut(d).inn), 'var(--c-food)', `<a class="btn solid" href="#food" data-qa="food">+ Add food</a>${topFavs().map(f => `<button class="btn" data-hfav="${esc(f.id)}" title="Log one today">${esc(f.name)}</button>`).join('')}`));
-  const ws = allWeights(), w = ws[ws.length - 1];
+  const ws = allWeights(), wl = weighList(), lwt = wl[wl.length - 1], w = lwt && [lwt.d, lwt.lb];
   if (w) { const p = weightOn(ws, addDays(w[0], -30)), ch = p && p[0] < w[0] ? w[1] - p[1] : null;
-    out.push(tile('weight', 'Weight', n1(w[1]), 'lb', `${dayLabel(w[0])}${ch != null ? ` · ${ch > 0 ? '+' : ch < 0 ? '−' : ''}${n1(Math.abs(ch))} lb vs 30 days before` : ''}`, ws.slice(-12).map(x => x[1]), 'var(--c-weight)', wtForm())); }
+    out.push(tile('weight', 'Weight', n1(w[1]), 'lb', `${dayLabel(w[0])}${lwt.s ? ' · ' + lwt.s : ''}${ch != null ? ` · ${ch > 0 ? '+' : ch < 0 ? '−' : ''}${n1(Math.abs(ch))} lb vs 30 days before` : ''}`, ws.slice(-12).map(x => x[1]), 'var(--c-weight)', wtForm())); }
   else out.push(tile('weight', 'Weight', '—', '', 'Tap to add a weigh-in', null, null, wtForm()));
   const x = dd(L);
   out.push(tile('activity', `Activity · ${dayLabel(L)}`, x.steps != null ? n0(x.steps) : '—', x.steps != null ? 'steps' : '', [x.move != null ? `Move ${n0(x.move)}${x.moveGoal ? '/' + n0(x.moveGoal) : ''} Cal` : '', x.ex != null ? `Exercise ${n0(x.ex)} min` : ''].filter(Boolean).join(' · '), ds.map(d => dd(d).steps), 'var(--c-steps)'));
