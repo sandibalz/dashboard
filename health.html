@@ -546,7 +546,7 @@ async function loadAny(file, onProgress) {
    Opened as a file on your computer: the summary is kept in this browser.
    Served over https (GitHub Pages): nothing is kept in the browser. The summary lives in your
    OneDrive behind the Microsoft sign-in (section 4b), the same way the Collector Overview page works. */
-const PAGE_VERSION = '2026-11-02i';                       // bump on every change, same habit as the Overview page; shown next to the title
+const PAGE_VERSION = '2026-11-02k';                       // bump on every change, same habit as the Overview page; shown next to the title
 const CLOUD = location.protocol === 'https:';
 const KEY = 'healthlog.summary.v1';
 const Store = {
@@ -2040,24 +2040,49 @@ function spark(vals, color) {                             // tiny trend line; nu
   return `<svg viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true"><polyline fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round" points="${pts.map(xy).join(' ')}"/></svg>`;
 }
 const wtForm = () => foodReady ? `<form id="homewt" class="frow" style="margin:0"><input name="lb" class="in num" type="number" min="50" max="900" step="0.1" placeholder="lb" required aria-label="Today's weight in pounds" style="width:84px">${slotSel()}<button class="btn solid" type="submit">+ Weigh-in</button></form>` : '';
-function topFavs() {                                        // up to 3 favorites you log most (last 60 days), else the first ones
+function topFavs() {                                        // all favorites, the ones you log most (last 60 days) first
   const cut = addDays(today(), -60), n = {}; for (const e of F.entries) if (e.fav && e.d >= cut) n[e.fav] = (n[e.fav] || 0) + 1;
-  return F.favs.map((f, i) => [f, n[f.id] || 0, i]).sort((a, b) => b[1] - a[1] || a[2] - b[2]).slice(0, 3).map(x => x[0]);
+  return F.favs.map((f, i) => [f, n[f.id] || 0, i]).sort((a, b) => b[1] - a[1] || a[2] - b[2]).map(x => x[0]);
 }
+const favQuick = () => { const fs = topFavs(); return fs.length ? `<form id="homefav" class="frow" style="margin:0"><select name="f" class="in" aria-label="Favorite to log today">${fs.map(f => `<option value="${esc(f.id)}">${esc(f.name)} · ${n0(f.kcal)} Cal</option>`).join('')}</select><button class="btn" type="submit" title="Log one today">Log</button></form>` : ''; };
 const homePaint = () => { const h = $('#homehost'); if (h) h.innerHTML = homeHTML(); };
 document.addEventListener('click', ev => {
   const q = ev.target.closest && ev.target.closest('[data-qa]'); if (q) S.qa = q.dataset.qa;
-  const h = ev.target.closest && ev.target.closest('[data-hfav]'); if (!h) return;
-  const f = F.favs.find(x => x.id === h.dataset.hfav); if (!f || !foodReady) return;
-  S.food.day = today(); logFav(f, 1); S.homeMsg = `Logged ${f.name} (${n0(f.kcal)} Cal) for today.`; homePaint();
 });
 document.addEventListener('submit', ev => {
+  if (ev.target.id === 'homefav') {
+    ev.preventDefault(); const f = F.favs.find(x => x.id === new FormData(ev.target).get('f')); if (!f || !foodReady) return;
+    S.food.day = today(); logFav(f, 1); S.homeMsg = `Logged ${f.name} (${n0(f.kcal)} Cal) for today.`; homePaint(); return;
+  }
   if (ev.target.id !== 'homewt') return; ev.preventDefault();
   const lb = parseFloat(new FormData(ev.target).get('lb')), d = today(); if (!foodReady || !(lb >= 50 && lb <= 900)) return;
   const s = ev.target.elements.s && ev.target.elements.s.value === 'Night' ? 'Night' : 'Morning';
   for (const o of F.weights.filter(w => w.d === d && wSlot(w) === s)) F.tomb.push(o.id);
   F.weights = F.weights.filter(w => !(w.d === d && wSlot(w) === s)); F.weights.push({id: uid(), d, s, t: nowHM(), lb: Math.round(lb * 10) / 10});
   S.homeMsg = `Weigh-in saved: ${n1(Math.round(lb * 10) / 10)} lb (${s.toLowerCase()}).`; foodDirty(); homePaint();
+});
+const stepGoal = () => { const g = +F.cfg.stepGoal; return g >= 1000 && g <= 100000 ? Math.round(g) : 10000; };
+function actTile(L, ds) {                                  // one tile: Move / Exercise / Steps rings + last workout + treadmill quick log
+  const x = M.daily[L] || {}, sg = stepGoal(), wk = M.workouts.slice().sort((p, q) => p.d < q.d ? 1 : -1), lw = wk[0], wcount = M.workouts.filter(o => o.d >= addDays(M.last, -6)).length;
+  const R = [[84, 'var(--c-move)', 'Move', x.move, x.moveGoal, 'Cal'], [62, 'var(--c-ex)', 'Exercise', x.ex, x.exGoal, 'min'], [40, 'var(--c-steps)', 'Steps', x.steps, sg, '']];
+  let s = '';
+  for (const [r, c, , v, g] of R) {
+    const C = 2 * Math.PI * r, p = g > 0 && v > 0 ? Math.min(1, v / g) : 0;
+    s += `<circle cx="100" cy="100" r="${r}" fill="none" stroke="${c}" stroke-opacity=".18" stroke-width="16"/>`;
+    if (p > 0) s += `<circle cx="100" cy="100" r="${r}" fill="none" stroke="${c}" stroke-width="16" stroke-linecap="round" stroke-dasharray="${(p * C).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 100 100)"/>`;
+  }
+  const row = ([, c, name, v, g, u]) => `<li style="display:flex;gap:7px;align-items:baseline;margin:3px 0"><i style="background:${c};width:9px;height:9px;border-radius:50%;flex:none;align-self:center"></i><span><b>${name}</b> ${v != null ? n0(v) : '–'}${g > 0 ? ' <span class="meta">of ' + n0(g) + (u ? ' ' + u : '') + '</span>' : u ? ' <span class="meta">' + u + '</span>' : ''}</span></li>`;
+  const lastw = lw ? `<a class="lnk" href="#workouts">Last: ${esc(prettyType(lw.t))} ${n0(lw.min)} min · ${esc(dayLabel(lw.d))} · ${wcount} in 7 days ›</a>` : '<a class="lnk" href="#workouts">Workouts: none logged ›</a>';
+  return `<div class="tile"><a class="tbody" href="#activity"><div class="tl"><span>Activity · ${esc(dayLabel(L))}</span><span aria-hidden="true">›</span></div>
+    <div style="display:flex;gap:14px;align-items:center;margin-top:8px"><svg viewBox="0 0 200 200" role="img" aria-label="Move, exercise and steps rings" style="width:104px;height:104px;flex:none;margin:0">${s}</svg><ul style="list-style:none;margin:0;padding:0;font-size:13.5px;min-width:0">${R.map(row).join('')}</ul></div></a>
+    <div class="tqa" style="padding-bottom:8px">${lastw}</div>
+    <div class="tqa">${tmQuick()}</div>
+    <div class="tqa" style="padding-top:0"><label class="meta">Steps goal <input class="in num" type="number" min="1000" max="100000" step="500" value="${sg}" data-stepgoal aria-label="Daily steps goal" style="width:84px"></label></div></div>`;
+}
+document.addEventListener('change', ev => {
+  const e = ev.target; if (!e.matches || !e.matches('[data-stepgoal]') || !foodReady) return;
+  const v = Math.round(parseFloat(e.value)); if (!(v >= 1000 && v <= 100000)) return;
+  F.cfg = {...F.cfg, stepGoal: v, t: Date.now()}; foodDirty(); homePaint();
 });
 function homeHTML() {
   const L = M.lastAct || M.last, ds = listDays(addDays(L, -13), L), dd = d => M.daily[d] || {}, tile = (href, label, big, unit, sub, sp, color, qa) =>
@@ -2067,15 +2092,12 @@ function homeHTML() {
   const hnet = io.inn != null && io.out != null ? io.inn - io.out : null;
   const hsub = io.burn ? (hnet != null ? `Net ${hnet > 0 ? '+' : '−'}${n0(Math.abs(hnet))} · burn ${n0(io.out)}` : `Burn ${n0(io.out)} (${n0(io.burn.base)} + ${n0(io.burn.ex)} exercise)`) : bd ? `Burned ${n0(inOut(bd).out)} on ${dayLabel(bd)}` : 'Tap to log food';
   const tds = listDays(addDays(td, -13), td);
-  out.push(tile('food', 'Calories · today', n0(io.inn || 0), 'Cal in', hsub, tds.map(d => inOut(d).inn), 'var(--c-food)', `<a class="btn solid" href="#food" data-qa="food">+ Add food</a>${topFavs().map(f => `<button class="btn" data-hfav="${esc(f.id)}" title="Log one today">${esc(f.name)}</button>`).join('')}`));
+  out.push(tile('food', 'Calories · today', n0(io.inn || 0), 'Cal in', hsub, tds.map(d => inOut(d).inn), 'var(--c-food)', `<a class="btn solid" href="#food" data-qa="food">+ Add food</a>${favQuick()}`));
   const ws = allWeights(), wl = weighList(), lwt = wl[wl.length - 1], w = lwt && [lwt.d, lwt.lb];
   if (w) { const p = weightOn(ws, addDays(w[0], -30)), ch = p && p[0] < w[0] ? w[1] - p[1] : null;
     out.push(tile('weight', 'Weight', n1(w[1]), 'lb', `${dayLabel(w[0])}${lwt.s ? ' · ' + lwt.s : ''}${ch != null ? ` · ${ch > 0 ? '+' : ch < 0 ? '−' : ''}${n1(Math.abs(ch))} lb vs 30 days before` : ''}`, ws.slice(-12).map(x => x[1]), 'var(--c-weight)', wtForm())); }
   else out.push(tile('weight', 'Weight', '—', '', 'Tap to add a weigh-in', null, null, wtForm()));
-  const x = dd(L);
-  out.push(tile('activity', `Activity · ${dayLabel(L)}`, x.steps != null ? n0(x.steps) : '—', x.steps != null ? 'steps' : '', [x.move != null ? `Move ${n0(x.move)}${x.moveGoal ? '/' + n0(x.moveGoal) : ''} Cal` : '', x.ex != null ? `Exercise ${n0(x.ex)} min` : ''].filter(Boolean).join(' · '), ds.map(d => dd(d).steps), 'var(--c-steps)'));
-  const wk = M.workouts.slice().sort((p, q) => p.d < q.d ? 1 : -1), lw = wk[0], wcount = M.workouts.filter(o => o.d >= addDays(M.last, -6)).length;
-  out.push(tile('workouts', 'Workouts', lw ? esc(prettyType(lw.t)) : '—', lw ? n0(lw.min) + ' min' : '', lw ? `${dayLabel(lw.d)} · ${wcount} in the last 7 days` : 'None logged', ds.map(d => { const m = M.workouts.filter(o => o.d === d).reduce((t, o) => t + o.min, 0); return m || null; }), 'var(--c-ex)', tmQuick()));
+  out.push(actTile(L, ds));
   let hd = null; for (let i = ds.length - 1; i >= 0 && !hd; i--) if (dd(ds[i]).rhr != null) hd = ds[i];
   if (hd) out.push(tile('heart', `Heart · ${dayLabel(hd)}`, n0(dd(hd).rhr), 'bpm resting', dd(hd).hrv != null ? `HRV ${n0(dd(hd).hrv)} ms` : '', ds.map(d => dd(d).rhr), 'var(--c-hr)'));
   let sd = null; for (let i = ds.length - 1; i >= 0 && !sd; i--) if (dd(ds[i]).sleep != null) sd = ds[i];
