@@ -80,6 +80,7 @@ body.side.emb #embBtns{display:flex;flex-direction:column;gap:6px;margin-top:10p
   <select id="tabsel" disabled style="max-width:150px"><option>Tabs</option></select>
   <button id="bNew" disabled>+ Tab</button><button id="bClose" disabled>&#10005; Tab</button>
   <button id="bPaste" disabled>Paste</button>
+  <button id="bCopy" disabled title="Copy the text on the host PC to this device's clipboard">Copy from host</button>
   <button id="bMode" class="tog" disabled>Touch: Scroll</button>
   <button id="bKb" disabled>&#9000; Keys</button>
   <button id="bIn" class="tog" disabled title="Where clicks and typing go">Input: ?</button>
@@ -260,7 +261,7 @@ async function connect(n) {
   const c = cur = { name: n, pc, dc: null, sid, ws: s.ws, ready: false };
   document.querySelectorAll('.host').forEach((b) => b.classList.toggle('cur', b.id === 'h-' + n));
   const dc = c.dc = pc.createDataChannel('ctl', { ordered: true });
-  dc.onopen = () => { dlog('data channel open'); c.ready = true; sendQ(); onConnected(); setTimeout(() => { rpc('hostinfo').then((r) => dlog('hostinfo: extension ' + r.ver + ', audio tracks ' + r.aud + ', video tracks ' + r.vid + (r.atrState ? ', audio ' + r.atrState : '') + (r.audNote ? ', audio error: ' + r.audNote : '')), (e) => dlog('hostinfo failed: ' + e.message + ' (host extension is old or does not know hostinfo)')); }, 500); };
+  dc.onopen = () => { dlog('data channel open'); c.ready = true; sendQ(); onConnected(); hostSeq = null; setTimeout(() => { rpc('clipget', { peek: true }).then((r) => { hostSeq = r.seq; }, () => {}); }, 2500); setTimeout(() => { rpc('hostinfo').then((r) => dlog('hostinfo: extension ' + r.ver + ', audio tracks ' + r.aud + ', video tracks ' + r.vid + (r.atrState ? ', audio ' + r.atrState : '') + (r.audNote ? ', audio error: ' + r.audNote : '')), (e) => dlog('hostinfo failed: ' + e.message + ' (host extension is old or does not know hostinfo)')); }, 500); };
   dc.onmessage = onDc;
   dc.onclose = () => { if (cur === c) { show('Connection closed.', true); disconnect(true); } };
   const tr = pc.addTransceiver('video', { direction: 'recvonly' });
@@ -288,7 +289,7 @@ async function connect(n) {
   await pc.setLocalDescription(offer);
   const ts = Date.now();
   s.ws.send(JSON.stringify({ t: 'offer', sid, ts, sdp: offer.sdp, sig: await RC.sign(`offer|${sid}|${ts}|${offer.sdp}`) }));
-  dlog(`offer sent [page build 1101d, audio m-line ${/^m=audio/m.test(offer.sdp) ? 'yes' : 'NO'}], sdp ${offer.sdp.length} bytes, video codecs: ${[...new Set((offer.sdp.match(/a=rtpmap:\d+ (H264|VP8|VP9|AV1)/g) || []).map((x) => x.split(' ')[1]))].join(',')}`);
+  dlog(`offer sent [page build 1103a, audio m-line ${/^m=audio/m.test(offer.sdp) ? 'yes' : 'NO'}], sdp ${offer.sdp.length} bytes, video codecs: ${[...new Set((offer.sdp.match(/a=rtpmap:\d+ (H264|VP8|VP9|AV1)/g) || []).map((x) => x.split(' ')[1]))].join(',')}`);
   c.timeout = setTimeout(() => { if (cur === c && !c.ready) { dlog('TIMEOUT: no data channel after 20 s; ws state ' + s.ws.readyState + ', ice ' + pc.iceConnectionState + ', pc ' + pc.connectionState + ', remoteDesc ' + !!pc.remoteDescription); show('No answer from ' + n + '. Tap Log for details.', true); disconnect(true); } }, 20000);
 }
 // Signals are handled strictly one after another, and ICE candidates wait until the answer is applied
@@ -318,7 +319,7 @@ let barsTouched = false;
 const coarse = matchMedia('(pointer:coarse)').matches;
 function setBars(hide) { document.body.classList.toggle('hidebars', hide); setTimeout(() => window.dispatchEvent(new Event('resize')), 50); }
 $('#bBars').onclick = () => { barsTouched = true; setBars(!document.body.classList.contains('hidebars')); };
-const CTRL = ['btnDisc', 'bBack', 'bFwd', 'bRel', 'url', 'bGo', 'bNew', 'bClose', 'bPaste', 'bMode', 'bKb', 'tabsel'];
+const CTRL = ['btnDisc', 'bBack', 'bFwd', 'bRel', 'url', 'bGo', 'bNew', 'bClose', 'bPaste', 'bCopy', 'bMode', 'bKb', 'tabsel'];
 async function inputStatus(tries = 0) {
   const b = $('#bIn'); b.disabled = true; b.classList.remove('on');
   try {
@@ -428,6 +429,52 @@ async function pasteLocal() {
   catch (e) { flash('Clipboard blocked: ' + e.message + ' (use the Keys button and type/paste in the box that opens)'); }
 }
 $('#bPaste').onclick = pasteLocal;
+// ---- two-way clipboard (needs the input helper on the host PC) ----
+// Ctrl+V here: your clipboard text goes to the host's clipboard, then Ctrl+V is pressed there. Ctrl+C / Ctrl+X here: the keys go to the host, then the host's clipboard text is copied into yours.
+// "Copy from host" does the second half on demand (also for right-click Copy on the host). hostSeq = the host clipboard's change counter, so Ctrl+C with nothing selected never overwrites your clipboard.
+let hostSeq = null, copyBusy = false;
+function combo(key) {   // Ctrl+<key> on the host, explicit so it works even if you already let go of Ctrl
+  const code = 'Key' + key.toUpperCase(), kc = key.toUpperCase().charCodeAt(0);
+  send({ t: 'in', k: 'kd', key: 'Control', code: 'ControlLeft', kc: 17, mod: 2, rep: false });
+  send({ t: 'in', k: 'kd', key, code, kc, mod: 2, rep: false });
+  send({ t: 'in', k: 'ku', key, code, kc, mod: 2 });
+  send({ t: 'in', k: 'ku', key: 'Control', code: 'ControlLeft', kc: 17, mod: 0 });
+}
+function showCopyBox(text) {   // last resort when the browser refuses to write your clipboard (needs a fresh tap or click)
+  let b = document.getElementById('copybox');
+  if (!b) { b = document.createElement('div'); b.id = 'copybox'; b.style.cssText = 'position:fixed;left:8px;right:8px;bottom:8px;z-index:50;background:#171b24;border:1px solid #333c4d;border-radius:10px;padding:8px;display:flex;flex-direction:column;gap:6px'; document.body.appendChild(b); }
+  b.innerHTML = '<div>Host text (select all and copy it here):</div>';
+  const ta = document.createElement('textarea'); ta.value = text; ta.readOnly = true; ta.style.cssText = 'width:100%;height:90px'; b.appendChild(ta);
+  const x = document.createElement('button'); x.textContent = 'Close'; x.onclick = () => b.remove(); b.appendChild(x); ta.focus(); ta.select();
+}
+async function copyFromHost(force) {
+  if (!cur || copyBusy) return; copyBusy = true;
+  try {
+    const r = await rpc('clipget');
+    if (!force && hostSeq != null && r.seq === hostSeq) return;   // nothing new was copied on the host
+    hostSeq = r.seq;
+    if (!r.text) { flash(force ? 'The host clipboard has no text.' : 'Nothing to copy (the host clipboard has no text).'); return; }
+    try { await navigator.clipboard.writeText(r.text); flash('Copied ' + r.text.length + ' characters from the host' + (r.cut ? ' (cut at 50,000)' : '') + '.'); }
+    catch (e) { showCopyBox(r.text); flash('Your browser blocked the copy. Use the box at the bottom.'); }
+  } catch (e) { flash(e.message === 'timeout' ? 'The host did not answer. Is the helper updated?' : e.message); }
+  finally { copyBusy = false; }
+}
+$('#bCopy').onclick = () => copyFromHost(true);
+async function pasteViaHost(text) {
+  if (!cur) return;
+  if (!text) { combo('v'); return; }   // your clipboard has no text: just press Ctrl+V on the host (pastes the host's own clipboard)
+  if (text.length > 50000) { flash('Clipboard text is longer than 50,000 characters. Not sent.'); return; }
+  try { const r = await rpc('clipset', { text }); hostSeq = r.seq; combo('v'); flash('Pasted ' + text.length + ' characters.'); }
+  catch (e) { send({ t: 'in', k: 'tx', text }); flash('Typed it instead (' + (e.message === 'timeout' ? 'helper did not answer' : e.message) + ').'); }
+}
+document.addEventListener('paste', (e) => {
+  if (!cur) return;
+  const a = document.activeElement;
+  if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.id !== 'hid') return;   // normal fields (address box, copy box) paste normally
+  if (a && a.id === 'hid') return;                                                  // phone keyboard box keeps its own path
+  e.preventDefault();
+  pasteViaHost((e.clipboardData && e.clipboardData.getData('text/plain')) || '');
+});
 
 // ---- settings ----
 $('#bSet').onclick = () => {
@@ -643,12 +690,16 @@ hid.addEventListener('keydown', (e) => {   // physical keys / keys Android keybo
 // Desktop: type straight into the stage like the extension viewer.
 stage.addEventListener('keydown', (e) => {
   if (!cur) return;
+  const cm = (e.ctrlKey || e.metaKey) && !e.altKey, ck = e.key.toLowerCase();
+  if (cm && ck === 'v') { e.stopPropagation(); return; }   // no preventDefault: the browser fires the paste event, handled above
   e.preventDefault(); e.stopPropagation();
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') return pasteLocal();
   send({ t: 'in', k: 'kd', key: e.key, code: e.code, kc: e.keyCode, text: e.key === 'Enter' ? '\r' : e.key.length === 1 ? e.key : undefined, mod: mods(e), rep: e.repeat });
+  if (cm && !e.repeat && (ck === 'c' || ck === 'x')) setTimeout(() => copyFromHost(false), 450);   // give the host app a moment to fill its clipboard
 });
 stage.addEventListener('keyup', (e) => {
-  if (!cur) return; e.preventDefault(); e.stopPropagation();
+  if (!cur) return;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') { e.stopPropagation(); return; }
+  e.preventDefault(); e.stopPropagation();
   send({ t: 'in', k: 'ku', key: e.key, code: e.code, kc: e.keyCode, mod: mods(e) });
 });
 
