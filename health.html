@@ -517,7 +517,7 @@ async function loadAny(file, onProgress) {
    Opened as a file on your computer: the summary is kept in this browser.
    Served over https (GitHub Pages): nothing is kept in the browser. The summary lives in your
    OneDrive behind the Microsoft sign-in (section 4b), the same way the Collector Overview page works. */
-const PAGE_VERSION = '2026-11-02f';                       // bump on every change, same habit as the Overview page; shown next to the title
+const PAGE_VERSION = '2026-11-02g';                       // bump on every change, same habit as the Overview page; shown next to the title
 const CLOUD = location.protocol === 'https:';
 const KEY = 'healthlog.summary.v1';
 const Store = {
@@ -1628,6 +1628,7 @@ const f2 = x => String(Math.round((+x || 0) * 100) / 100);
 const tmBlank = () => ({mi: '', mph: '', inc: 0});
 const tmDefaultPreset = () => ({id: uid(), name: 'Incline / run intervals', reps: 3, segs: [{mi: 0.25, mph: 3.5, inc: 10}, {mi: 1, mph: 7.5, inc: 0}]});
 const tmSegText = r => (r.reps > 1 ? r.reps + ' × ' : '') + r.segs.map(s => `${f2(s.mi)} mi @ ${f2(s.mph)} mph${+s.inc ? ' ' + f2(s.inc) + '%' : ''}`).join(' + ');
+function tmSeed() { if (!foodReady || F.tmSeeded) return; F.tmSeeded = true; if (!F.tmPresets.length) F.tmPresets.push(tmDefaultPreset()); foodDirty(); }
 function tmState() { S.tm = S.tm || {draft: null, msg: ''}; if (!S.tm.draft) S.tm.draft = {name: '', d: today(), reps: 1, segs: [tmBlank()]}; return S.tm; }
 function tmSumHTML(dr) {
   const kg = tmKg(dr.d), c = tmCalc(dr, kg);
@@ -1638,9 +1639,9 @@ function tmPaint(force) {
   const h = $('#tmhost'); if (!h || !M) return;
   if (!force && h.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;      // never repaint under someone who is typing
   if (!foodReady) { h.innerHTML = '<p class="note" style="padding:6px 0">Loading your treadmill workouts…</p>'; return; }
-  if (!F.tmSeeded) { F.tmSeeded = true; if (!F.tmPresets.length) F.tmPresets.push(tmDefaultPreset()); foodDirty(); }
+  tmSeed();
   const t = tmState(), dr = t.draft;
-  const pre = F.tmPresets.map(p => `<span class="favchip"><button class="btn" data-tm="usepreset" data-id="${esc(p.id)}" title="${esc(tmSegText(p))}">${esc(p.name)}</button><button class="lnk" data-tm="delpreset" data-id="${esc(p.id)}" aria-label="Delete preset ${esc(p.name)}">×</button></span>`).join(' ');
+  const pre = `<select class="in" data-tmi="preset" aria-label="Treadmill preset"><option value="">Choose a preset…</option>${F.tmPresets.map(p => `<option value="${esc(p.id)}"${t.preset === p.id ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select>${t.preset ? `<button class="lnk" data-tm="delpreset" data-id="${esc(t.preset)}">Delete this preset</button>` : ''}`;
   const segs = dr.segs.map((s, i) => `<tr><td><input class="in num" type="number" min="0" step="0.01" inputmode="decimal" data-tmi="seg" data-i="${i}" data-f="mi" value="${esc(s.mi)}" aria-label="Segment ${i + 1} miles" style="width:80px"></td><td><input class="in num" type="number" min="0" step="0.1" inputmode="decimal" data-tmi="seg" data-i="${i}" data-f="mph" value="${esc(s.mph)}" aria-label="Segment ${i + 1} mph" style="width:80px"></td><td><input class="in num" type="number" min="0" max="40" step="0.5" inputmode="decimal" data-tmi="seg" data-i="${i}" data-f="inc" value="${esc(s.inc)}" aria-label="Segment ${i + 1} incline percent" style="width:80px"></td><td class="num"><button class="lnk" data-tm="rmseg" data-i="${i}" aria-label="Remove segment ${i + 1}">×</button></td></tr>`).join('');
   const runs = F.tmRuns.slice().sort((p, q) => (q.d + (q.t || '')) < (p.d + (p.t || '')) ? -1 : 1).slice(0, 6).map(r => {
     const kg = tmKg(r.d), c = tmCalc(r, kg), mw = tmMatch(r);
@@ -1649,7 +1650,7 @@ function tmPaint(force) {
   }).join('');
   h.innerHTML = `<h3 style="margin:0 0 6px">Treadmill</h3>
     <p class="lede" style="margin:0 0 10px">Segments in miles, mph and incline %. Time comes from distance ÷ speed. Calories use the treadmill math, which sees incline (your watch does not).</p>
-    <div class="favs"><span class="meta">Presets</span>${pre || '<span class="meta">none yet</span>'}</div>
+    <div class="frow"><span class="meta">Preset</span>${pre}</div>
     <div class="frow"><input class="in" data-tmi="name" placeholder="Name (optional)" value="${esc(dr.name)}" aria-label="Workout name"><input class="in" type="date" data-tmi="d" value="${esc(dr.d)}" aria-label="Date"><label class="meta">Repeat the set × <input class="in num" type="number" min="1" max="30" step="1" data-tmi="reps" value="${dr.reps}" style="width:64px"></label></div>
     <div class="tablewrap"><table><thead><tr><th>Miles</th><th>mph</th><th>Incline %</th><th></th></tr></thead><tbody>${segs}</tbody></table></div>
     <div class="frow"><button class="btn" data-tm="addseg">+ Segment</button><span class="meta" id="tmsum" style="margin:0">${tmSumHTML(dr)}</span></div>
@@ -1657,7 +1658,12 @@ function tmPaint(force) {
     ${runs ? `<div class="tablewrap" style="margin-top:14px"><table><thead><tr><th>Date</th><th>Workout</th><th class="num">Time</th><th class="num">Distance</th><th class="num">Treadmill Cal</th><th>Watch recorded</th><th></th></tr></thead><tbody>${runs}</tbody></table></div>` : ''}`;
 }
 document.addEventListener('input', ev => {
-  const e = ev.target, f = e.dataset && e.dataset.tmi; if (!f) return; const dr = tmState().draft;
+  const e = ev.target, f = e.dataset && e.dataset.tmi; if (!f) return; const ts = tmState(), dr = ts.draft;
+  if (f === 'preset') {
+    ts.preset = e.value; const p = F.tmPresets.find(x => x.id === e.value);
+    if (p) { dr.name = p.name; dr.reps = p.reps || 1; dr.segs = p.segs.map(s => ({...s})); ts.msg = 'Preset loaded: set the repeats and date, then Log.'; } else ts.msg = '';
+    tmPaint(true); return;
+  }
   if (f === 'seg') { const s = dr.segs[+e.dataset.i]; if (s) s[e.dataset.f] = e.value; }
   else if (f === 'reps') dr.reps = Math.max(1, Math.min(30, parseInt(e.value, 10) || 1));
   else dr[f] = e.value;
@@ -1671,9 +1677,9 @@ document.addEventListener('click', ev => {
   if (a === 'addseg') dr.segs.push(tmBlank());
   else if (a === 'rmseg') { dr.segs.splice(+b.dataset.i, 1); if (!dr.segs.length) dr.segs.push(tmBlank()); }
   else if (a === 'usepreset') { const p = F.tmPresets.find(x => x.id === b.dataset.id); if (p) { dr.name = p.name; dr.reps = p.reps || 1; dr.segs = p.segs.map(s => ({...s})); t.msg = 'Preset loaded: set the repeats and date, then Log.'; } }
-  else if (a === 'delpreset') { F.tmPresets = F.tmPresets.filter(x => x.id !== b.dataset.id); F.tomb.push(b.dataset.id); foodDirty(); }
+  else if (a === 'delpreset') { F.tmPresets = F.tmPresets.filter(x => x.id !== b.dataset.id); F.tomb.push(b.dataset.id); t.preset = ''; foodDirty(); }
   else if (a === 'delrun') { F.tmRuns = F.tmRuns.filter(x => x.id !== b.dataset.id); F.tomb.push(b.dataset.id); foodDirty(); calc = true; }
-  else if (a === 'clear') t.draft = null;
+  else if (a === 'clear') { t.draft = null; t.preset = ''; }
   else if (a === 'savepreset') {
     const segs = clean(), name = dr.name.trim();
     if (!segs.length) t.msg = 'Add at least one segment with miles and mph.'; else if (!name) t.msg = 'Type a name first.';
@@ -1681,9 +1687,28 @@ document.addEventListener('click', ev => {
   } else if (a === 'log') {
     const segs = clean();
     if (!segs.length) t.msg = 'Add at least one segment with miles and mph.'; else if (!/^\d{4}-\d\d-\d\d$/.test(dr.d)) t.msg = 'Pick a date.';
-    else { F.tmRuns.push({id: uid(), d: dr.d, t: dr.d === today() ? nowHM() : '', name: dr.name.trim(), reps: dr.reps, segs}); t.msg = 'Logged.'; t.draft = null; foodDirty(); calc = true; }
+    else { F.tmRuns.push({id: uid(), d: dr.d, t: dr.d === today() ? nowHM() : '', name: dr.name.trim(), reps: dr.reps, segs}); t.msg = 'Logged.'; t.draft = null; t.preset = ''; foodDirty(); calc = true; }
   }
   tmPaint(true); if (calc) calPaint();
+});
+
+const tmQuick = () => {                                   // Workouts tile on the home screen: preset + repeats + one tap logs it for today
+  if (!foodReady) return '';
+  tmSeed();
+  if (!F.tmPresets.length) return '<a class="btn" href="#workouts">+ Treadmill</a>';
+  return `<form id="hometm" class="frow" style="margin:0"><select name="p" class="in" data-hmtp aria-label="Treadmill preset">${F.tmPresets.map(p => `<option value="${esc(p.id)}" data-reps="${p.reps || 1}">${esc(p.name)}</option>`).join('')}</select><label class="meta">× <input name="r" class="in num" type="number" min="1" max="30" step="1" value="${F.tmPresets[0].reps || 1}" style="width:56px" aria-label="Repeats"></label><button class="btn solid" type="submit">+ Log treadmill</button></form>`;
+};
+document.addEventListener('input', ev => {
+  const e = ev.target; if (!e.matches || !e.matches('[data-hmtp]')) return;
+  const o = e.selectedOptions[0], r = e.form && e.form.elements.r; if (o && r) r.value = o.dataset.reps || 1;
+});
+document.addEventListener('submit', ev => {
+  if (ev.target.id !== 'hometm') return; ev.preventDefault();
+  const f = ev.target.elements, p = F.tmPresets.find(x => x.id === f.p.value); if (!foodReady || !p) return;
+  const reps = Math.max(1, Math.min(30, parseInt(f.r.value, 10) || 1));
+  const run = {id: uid(), d: today(), t: nowHM(), name: p.name, reps, segs: p.segs.map(s => ({...s}))}, kg = tmKg(run.d), c = tmCalc(run, kg);
+  F.tmRuns.push(run); foodDirty();
+  S.homeMsg = `Logged ${p.name}${reps > 1 ? ' × ' + reps : ''}: ${fmtDur(c.min)}, ${f2(c.mi)} mi${kg ? ', ≈' + n0(c.net) + ' Cal' : ''}.`; homePaint();
 });
 
 /* ---------- 6d. favorites screen (health.html#favorites) ----------
@@ -1902,7 +1927,7 @@ function homeHTML() {
   const x = dd(L);
   out.push(tile('activity', `Activity · ${dayLabel(L)}`, x.steps != null ? n0(x.steps) : '—', x.steps != null ? 'steps' : '', [x.move != null ? `Move ${n0(x.move)}${x.moveGoal ? '/' + n0(x.moveGoal) : ''} Cal` : '', x.ex != null ? `Exercise ${n0(x.ex)} min` : ''].filter(Boolean).join(' · '), ds.map(d => dd(d).steps), 'var(--c-steps)'));
   const wk = M.workouts.slice().sort((p, q) => p.d < q.d ? 1 : -1), lw = wk[0], wcount = M.workouts.filter(o => o.d >= addDays(M.last, -6)).length;
-  out.push(tile('workouts', 'Workouts', lw ? esc(prettyType(lw.t)) : '—', lw ? n0(lw.min) + ' min' : '', lw ? `${dayLabel(lw.d)} · ${wcount} in the last 7 days` : 'None logged', ds.map(d => { const m = M.workouts.filter(o => o.d === d).reduce((t, o) => t + o.min, 0); return m || null; }), 'var(--c-ex)'));
+  out.push(tile('workouts', 'Workouts', lw ? esc(prettyType(lw.t)) : '—', lw ? n0(lw.min) + ' min' : '', lw ? `${dayLabel(lw.d)} · ${wcount} in the last 7 days` : 'None logged', ds.map(d => { const m = M.workouts.filter(o => o.d === d).reduce((t, o) => t + o.min, 0); return m || null; }), 'var(--c-ex)', tmQuick()));
   let hd = null; for (let i = ds.length - 1; i >= 0 && !hd; i--) if (dd(ds[i]).rhr != null) hd = ds[i];
   if (hd) out.push(tile('heart', `Heart · ${dayLabel(hd)}`, n0(dd(hd).rhr), 'bpm resting', dd(hd).hrv != null ? `HRV ${n0(dd(hd).hrv)} ms` : '', ds.map(d => dd(d).rhr), 'var(--c-hr)'));
   let sd = null; for (let i = ds.length - 1; i >= 0 && !sd; i--) if (dd(ds[i]).sleep != null) sd = ds[i];
