@@ -29,6 +29,23 @@ button.tog.on{background:#26344d;border-color:#6ea8ff}
 .small{font-size:12px;color:#8a93a6}
 body.hidebars #top,body.hidebars #tools,body.hidebars #keys,body.hidebars #setup{display:none!important}
 #bBars{position:absolute;right:8px;top:8px;z-index:6;opacity:.6;min-width:40px;border-radius:20px;background:#232a36cc}
+/* side layout: wide windows put the toolbars in the black side areas (left = session, right = browser) */
+body.side{display:grid;grid-template-columns:168px minmax(0,1fr) 168px;grid-template-rows:minmax(0,1fr)}
+body.side.hidebars{grid-template-columns:0 minmax(0,1fr) 0}
+body.side #stage{grid-column:2;grid-row:1}
+body.side #top,body.side #tools{flex-direction:column;flex-wrap:nowrap;align-items:stretch;overflow-y:auto;overflow-x:hidden;border-bottom:0;padding:8px 6px}
+body.side #top{grid-column:1;grid-row:1;border-right:1px solid #262c38}
+body.side #tools{grid-column:3;grid-row:1;border-left:1px solid #262c38}
+body.side #top button,body.side #tools button,body.side #tools select,body.side #tools input{width:100%;max-width:none;min-width:0;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+body.side #tools .nav{display:flex!important;gap:6px}
+body.side #tools .nav button{text-align:center;padding:7px 0;flex:1}
+body.side #url{flex:none;min-width:0}
+body.side #tools select{max-width:none!important}
+body.side #stats{margin:auto 0 0;white-space:normal;line-height:1.3}
+body.side #setup{position:fixed;left:176px;right:176px;top:0;z-index:20}
+body.side #keys{position:fixed;left:176px;right:176px;bottom:0;z-index:20}
+#embBtns{display:none}
+body.side.emb #embBtns{display:flex;flex-direction:column;gap:6px;margin-top:10px}
 </style></head>
 <body>
 <div class="bar" id="top">
@@ -40,6 +57,7 @@ body.hidebars #top,body.hidebars #tools,body.hidebars #keys,body.hidebars #setup
   <button id="bLog" title="Connection log">Log</button>
   <button id="bZ" title="Pinch with two fingers to zoom this view. Tap to reset.">Zoom 1&times;</button>
   <span id="stats"></span>
+  <span id="embBtns"><button id="eSm" title="Back to the small viewer">Smaller</button><button id="eTab" title="Open the viewer in its own browser tab">New tab</button><button id="eClose" title="Close the viewer">Close</button></span>
 </div>
 <div id="setup">
   <input id="keyIn" type="password" placeholder="Shared key (typed once per device)" autocomplete="off">
@@ -56,7 +74,7 @@ body.hidebars #top,body.hidebars #tools,body.hidebars #keys,body.hidebars #setup
   <select id="codec"><option value="auto">Codec: auto</option><option value="H264">H264</option><option value="VP9">VP9</option><option value="VP8">VP8</option><option value="AV1">AV1</option></select>
 </div>
 <div class="bar" id="tools">
-  <button id="bBack" disabled>&#9664;</button><button id="bFwd" disabled>&#9654;</button><button id="bRel" disabled>&#8635;</button>
+  <span class="nav" style="display:contents"><button id="bBack" disabled>&#9664;</button><button id="bFwd" disabled>&#9654;</button><button id="bRel" disabled>&#8635;</button></span>
   <input id="url" disabled placeholder="Address or search" autocapitalize="off" autocomplete="off" spellcheck="false">
   <button id="bGo" disabled>Go</button>
   <select id="tabsel" disabled style="max-width:150px"><option>Tabs</option></select>
@@ -649,6 +667,17 @@ async function stats() {
   $('#stats').textContent = s.join(' · ');
 }
 
+
+// ---- side layout (toolbars in the black side areas on wide windows) ----
+const qs = new URLSearchParams(location.search);
+if (qs.get('side') === '1') document.body.classList.add('emb');
+function applyLayout() {
+  const side = LS.get('rc.side', 'auto') !== 'off' && !coarse && innerWidth >= 1000 && innerWidth >= innerHeight * 1.6;
+  if (document.body.classList.contains('side') !== side) { document.body.classList.toggle('side', side); setTimeout(() => window.dispatchEvent(new Event('resize')), 50); }
+}
+addEventListener('resize', applyLayout); applyLayout();
+const toParent = (m) => { try { parent.postMessage({ rc: m }, location.origin); } catch {} };
+$('#eSm').onclick = () => toParent('smaller'); $('#eTab').onclick = () => toParent('tab'); $('#eClose').onclick = () => toParent('close');
 window.addEventListener('pagehide', () => disconnect(true));   // tell the host we left (matters when embedded and closed)
 // Come back from sleep / background / network change: reopen any relay sockets that died, right away.
 function wake() { if (document.hidden || !cfg.key) return; for (const n of HOSTS) { const s = socks[n]; if (!s || !s.ws || s.ws.readyState > 1) { dlog(n + ': relay socket reopened'); openSock(n, gen); } } }
