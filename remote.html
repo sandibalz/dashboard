@@ -674,9 +674,11 @@ if (qs.get('side') === '1') document.body.classList.add('emb');
 function applyLayout() {
   const side = LS.get('rc.side', 'auto') !== 'off' && !coarse && innerWidth >= 1000 && innerWidth >= innerHeight * 1.6;
   if (document.body.classList.contains('side') !== side) { document.body.classList.toggle('side', side); setTimeout(() => window.dispatchEvent(new Event('resize')), 50); }
+  toParent('layout', side);
 }
 addEventListener('resize', applyLayout); applyLayout();
-const toParent = (m) => { try { parent.postMessage({ rc: m }, location.origin); } catch {} };
+function toParent(m, side) { if (parent === window) return; try { parent.postMessage({ rc: m, side }, location.origin); } catch {} }
+if (qs.get('full') !== '1') $('#eSm').textContent = 'Full screen';
 $('#eSm').onclick = () => toParent('smaller'); $('#eTab').onclick = () => toParent('tab'); $('#eClose').onclick = () => toParent('close');
 window.addEventListener('pagehide', () => disconnect(true));   // tell the host we left (matters when embedded and closed)
 // Come back from sleep / background / network change: reopen any relay sockets that died, right away.
