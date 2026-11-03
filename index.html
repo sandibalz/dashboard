@@ -557,9 +557,9 @@ function remRender() {
   // "Full screen" here fills the whole browser window (iPhones cannot full-screen an iframe).
   el.style.cssText = remFull ? 'position:fixed;inset:0;z-index:60;background:#0f1218;padding:6px;display:flex;flex-direction:column;gap:6px' : '';
   const btn = remFull ? 'color:#e6e9ef;background:#232a36;border-color:#333c4d' : '';
-  const sideUi = remFull && remMode !== 'watch';   // full-screen remote: its buttons live in the viewer's black side bars
-  el.innerHTML = `<div style="display:${sideUi ? 'none' : 'flex'};flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 ${remFull ? 0 : 8}px;${remFull ? 'color:#e6e9ef' : ''}"><b>${remMode === 'watch' ? 'Watch' : 'Remote: ' + esc(cur)}</b><span class="sub" ${remFull ? 'hidden' : ''}>${remMode === 'watch' ? 'View only. Click a tile to take control of that PC.' : 'Pick a PC in the viewer to switch. It uses the key saved for the Remote page.'}</span><span style="flex:1"></span><button class="tbtn" style="${btn}" id="rem-fs">${remFull ? 'Smaller' : 'Full screen'}</button><button class="tbtn" style="${btn}" id="rem-tab">New tab</button><button class="tbtn" style="${btn}" id="rem-close">Close</button></div>
-  <iframe id="rem-frame" src="${remMode === 'watch' ? 'watch.html?embed=1' : 'remote.html?embed=1' + (sideUi ? '&side=1' : '') + '&connect=' + encodeURIComponent(cur)}" allow="fullscreen; clipboard-read; clipboard-write" style="width:100%;${remFull ? 'flex:1;min-height:0' : 'height:calc(100vh - 150px);min-height:420px'};border:1px solid #c9ced6;border-radius:10px;background:#000"></iframe>`;
+  const sideUi = remMode !== 'watch';   // remote: when the viewer uses its side bars it hides this row (it tells us) and shows these buttons there
+  el.innerHTML = `<div id="rem-head" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 ${remFull ? 0 : 8}px;${remFull ? 'color:#e6e9ef' : ''}"><b>${remMode === 'watch' ? 'Watch' : 'Remote: ' + esc(cur)}</b><span class="sub" ${remFull ? 'hidden' : ''}>${remMode === 'watch' ? 'View only. Click a tile to take control of that PC.' : 'Pick a PC in the viewer to switch. It uses the key saved for the Remote page.'}</span><span style="flex:1"></span><button class="tbtn" style="${btn}" id="rem-fs">${remFull ? 'Smaller' : 'Full screen'}</button><button class="tbtn" style="${btn}" id="rem-tab">New tab</button><button class="tbtn" style="${btn}" id="rem-close">Close</button></div>
+  <iframe id="rem-frame" src="${remMode === 'watch' ? 'watch.html?embed=1' : 'remote.html?embed=1&side=1' + (remFull ? '&full=1' : '') + '&connect=' + encodeURIComponent(cur)}" allow="fullscreen; clipboard-read; clipboard-write" style="width:100%;${remFull ? 'flex:1;min-height:0' : 'height:calc(100vh - 150px);min-height:420px'};border:1px solid #c9ced6;border-radius:10px;background:#000"></iframe>`;
 }
 let pubOpen = false, pubState = { msg: '', busy: false, files: null, note: '' };
 const ghTok = () => LS.get('co.ghToken', '');
@@ -626,8 +626,9 @@ function pubRender() {
 }
 window.addEventListener('message', e => {   // buttons inside the full-screen viewer's side bar
   if (e.origin !== location.origin || !e.data || !remOpen) return;
-  if (e.data.rc === 'close') { remOpen = false; remRender(); }
-  else if (e.data.rc === 'smaller') { remFull = false; remRender(); }
+  if (e.data.rc === 'layout') { const h = $('rem-head'); if (h) h.style.display = e.data.side ? 'none' : 'flex'; }
+  else if (e.data.rc === 'close') { remOpen = false; remRender(); }
+  else if (e.data.rc === 'smaller') { remFull = !remFull; remRender(); }
   else if (e.data.rc === 'tab') window.open('remote.html?connect=' + encodeURIComponent(cur), '_blank');
 });
 document.addEventListener('click', async e => {
