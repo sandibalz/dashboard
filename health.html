@@ -546,7 +546,7 @@ async function loadAny(file, onProgress) {
    Opened as a file on your computer: the summary is kept in this browser.
    Served over https (GitHub Pages): nothing is kept in the browser. The summary lives in your
    OneDrive behind the Microsoft sign-in (section 4b), the same way the Collector Overview page works. */
-const PAGE_VERSION = '2026-11-03d';                       // bump on every change, same habit as the Overview page; shown next to the title
+const PAGE_VERSION = '2026-11-03e';                       // bump on every change, same habit as the Overview page; shown next to the title
 const CLOUD = location.protocol === 'https:';
 const KEY = 'healthlog.summary.v1';
 const Store = {
@@ -1285,12 +1285,13 @@ async function gemCall1(b64, mime, model) {
       const raw = await r.text(); let j = null; try { j = JSON.parse(raw); } catch (x) { }
       if (!r.ok) {
         const msg = (j && j.error && j.error.message) || raw.slice(0, 160), e = new Error('HTTP ' + r.status + ': ' + msg); e.status = r.status;
-        if (r.status === 401 || r.status === 403 || r.status === 429 || (r.status === 400 && /api[ _]?key/i.test(msg))) { e.fatal = true; throw e; }
+        if (r.status === 401 || r.status === 403 || (r.status === 400 && /api[ _]?key/i.test(msg))) { e.fatal = true; throw e; }
+        if ([429, 500, 503, 504, 404].includes(r.status)) { e.stop = true; throw e; }
         last = e; errs.push(id + ': ' + e.message.slice(0, 80)); continue;
       }
       const o = gemJson(gemText(j)); if (o) { gemMode = id; return o; }
       last = new Error('the reply could not be understood'); errs.push(id + ': unreadable reply');
-    } catch (e) { if (e.fatal) throw e; last = e.name === 'AbortError' ? new Error('Google took too long to answer') : e; errs.push(id + ': ' + (last.message || last).toString().slice(0, 80)); }
+    } catch (e) { if (e.fatal || e.stop) throw e; last = e.name === 'AbortError' ? new Error('Google took too long to answer') : e; errs.push(id + ': ' + (last.message || last).toString().slice(0, 80)); }
     finally { clearTimeout(tm); }
   }
   if (last) last.tries = errs.join(' | ');
@@ -1303,8 +1304,8 @@ async function gemCall(b64, mime) {
   for (const m of list) {
     try { const o = await gemCall1(b64, mime, m); if (notes.length) o._note = 'Used ' + m + ' (' + notes.join('; ') + ').'; return o; }
     catch (e) {
-      last = e; if (e.fatal || ![500, 503, 504, 404].includes(e.status)) throw e;
-      notes.push(m + ' busy');
+      last = e; if (e.fatal || ![429, 500, 503, 504, 404].includes(e.status)) throw e;
+      notes.push(m + (e.status === 429 ? ' out of quota' : ' busy'));
     }
   }
   last.message += ' (tried ' + list.join(', ') + ')'; throw last;
@@ -1336,7 +1337,7 @@ async function photoLookup(file) {
   catch (e) {
     fs.busy = false; fs.busyMsg = '';
     const m = String(e.message || e);
-    fs.err = e.status === 429 ? 'Google’s free limit for label photos is used up for now. Try again later (it resets daily) or use the barcode.'
+    fs.err = e.status === 429 ? 'Google’s free limit for label photos is used up for now. Try again later (it resets daily) or use the barcode. Google says: ' + m.slice(0, 300)
       : e.status === 401 || e.status === 403 || /api key/i.test(m) ? 'Google did not accept the Gemini key (' + m + '). Use “Change” on the key line below.'
       : /failed to fetch|networkerror|load failed/i.test(m) ? 'Could not reach Google (' + m + '). Check the connection and try again.' + (e && e.tries ? ' [' + e.tries + ']' : '')
       : 'Reading the photo failed: ' + m;
