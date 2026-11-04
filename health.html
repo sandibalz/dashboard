@@ -546,7 +546,7 @@ async function loadAny(file, onProgress) {
    Opened as a file on your computer: the summary is kept in this browser.
    Served over https (GitHub Pages): nothing is kept in the browser. The summary lives in your
    OneDrive behind the Microsoft sign-in (section 4b), the same way the Collector Overview page works. */
-const PAGE_VERSION = '2026-11-03e';                       // bump on every change, same habit as the Overview page; shown next to the title
+const PAGE_VERSION = '2026-11-03f';                       // bump on every change, same habit as the Overview page; shown next to the title
 const CLOUD = location.protocol === 'https:';
 const KEY = 'healthlog.summary.v1';
 const Store = {
@@ -1302,7 +1302,7 @@ async function gemCall(b64, mime) {
   const list = [gemModel(), 'gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'].filter((m, i, a) => a.indexOf(m) === i);
   let last = null; const notes = [];
   for (const m of list) {
-    try { const o = await gemCall1(b64, mime, m); if (notes.length) o._note = 'Used ' + m + ' (' + notes.join('; ') + ').'; return o; }
+    try { const o = await gemCall1(b64, mime, m); o._note = 'Model: ' + m + (notes.length ? ' (' + notes.join('; ') + ')' : '') + '.'; return o; }
     catch (e) {
       last = e; if (e.fatal || ![429, 500, 503, 504, 404].includes(e.status)) throw e;
       notes.push(m + (e.status === 429 ? ' out of quota' : ' busy'));
@@ -1348,7 +1348,7 @@ async function photoLookup(file) {
     const r = it.read, est = r.p * 4 + r.c * 4 + r.f * 9;
     if (r.kc > 0 && Math.abs(est - r.kc) / r.kc > 0.3) warn.push('The calories do not match protein, carbs and fat well. Check them against the label.');
     Object.assign(fs, {busy: false, busyMsg: '', results: [it], err: ''});
-    fs.note = `Read from the photo: serving ${r.lab}; ${n0(r.kc)} Cal, protein ${n1(r.p)} g, carbs ${n1(r.c)} g, fat ${n1(r.f)} g. Check these against the label.` + (it.perServing ? ' No gram weight was printed, so only whole servings are offered.' : '') + (warn.length ? ' ' + warn.join(' ') : '');
+    fs.note = `Read from the photo: serving ${r.lab}; ${n0(r.kc)} Cal, protein ${n1(r.p)} g, carbs ${n1(r.c)} g, fat ${n1(r.f)} g. Check these against the label.` + (it.perServing ? ' No gram weight was printed, so only whole servings are offered.' : '') + (warn.length ? ' ' + warn.join(' ') : '') + (j._note ? ' ' + j._note : '');
     return foodPaintRes();
   }
   const q = [j.brand, j.product_name].filter(x => x && String(x).trim()).join(' ').trim();
@@ -1363,7 +1363,7 @@ async function photoLookup(file) {
   if (u.status === 'fulfilled') items.push(...(u.value.foods || []).map(usdaItem).filter(Boolean)); else { errs.push('USDA ' + u.reason.message); fs.keyHint = u.reason.message === 'limit reached'; }
   if (o.status === 'fulfilled') items.push(...(o.value.products || []).map(offItem).filter(Boolean)); else errs.push('Open Food Facts ' + o.reason.message);
   Object.assign(fs, {busy: false, busyMsg: '', results: items});
-  if (items.length) { fs.note = `The photo had no readable nutrition panel, so these are database matches for “${q}”. Pick the one that matches your package, or take a photo of the panel.`; fs.err = errs.length ? `Some results are missing (${errs.join('; ')}).` : ''; }
+  if (items.length) { fs.note = `The photo had no readable nutrition panel, so these are database matches for “${q}”. Pick the one that matches your package, or take a photo of the panel.` + (j._note ? ' ' + j._note : ''); fs.err = errs.length ? `Some results are missing (${errs.join('; ')}).` : ''; }
   else fs.err = errs.length ? `The database lookup is not available right now (${errs.join('; ')}).` : `No database match for “${q}”. Take a photo of the nutrition panel, scan the barcode, or enter calories yourself.`;
   foodPaintRes();
 }
