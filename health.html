@@ -546,7 +546,7 @@ async function loadAny(file, onProgress) {
    Opened as a file on your computer: the summary is kept in this browser.
    Served over https (GitHub Pages): nothing is kept in the browser. The summary lives in your
    OneDrive behind the Microsoft sign-in (section 4b), the same way the Collector Overview page works. */
-const PAGE_VERSION = '2026-11-03c';                       // bump on every change, same habit as the Overview page; shown next to the title
+const PAGE_VERSION = '2026-11-03d';                       // bump on every change, same habit as the Overview page; shown next to the title
 const CLOUD = location.protocol === 'https:';
 const KEY = 'healthlog.summary.v1';
 const Store = {
@@ -1266,8 +1266,8 @@ function gemText(j) {                                       // text of the reply
   return '';
 }
 function gemJson(s) { s = String(s).replace(/```(?:json)?/gi, ''); const a = s.indexOf('{'), b = s.lastIndexOf('}'); if (a < 0 || b <= a) return null; try { return JSON.parse(s.slice(a, b + 1)); } catch (x) { return null; } }
-async function gemCall(b64, mime) {
-  const key = gemKey(), model = gemModel(), img = {type: 'image', mime_type: mime, data: b64}, inp = [{type: 'text', text: GEM_PROMPT}, img];
+async function gemCall1(b64, mime, model) {
+  const key = gemKey(), img = {type: 'image', mime_type: mime, data: b64}, inp = [{type: 'text', text: GEM_PROMPT}, img];
   const tries = [
     ['i1', 'interactions', {model, input: inp, response_format: {type: 'text', mime_type: 'application/json'}}],
     ['i2', 'interactions', {model, input: inp}],
@@ -1295,6 +1295,19 @@ async function gemCall(b64, mime) {
   }
   if (last) last.tries = errs.join(' | ');
   throw last || new Error('no answer');
+}
+// busy/missing model (503, 500, 504, 404) -> try the next free model; network and key errors stop right away
+async function gemCall(b64, mime) {
+  const list = [gemModel(), 'gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'].filter((m, i, a) => a.indexOf(m) === i);
+  let last = null; const notes = [];
+  for (const m of list) {
+    try { const o = await gemCall1(b64, mime, m); if (notes.length) o._note = 'Used ' + m + ' (' + notes.join('; ') + ').'; return o; }
+    catch (e) {
+      last = e; if (e.fatal || ![500, 503, 504, 404].includes(e.status)) throw e;
+      notes.push(m + ' busy');
+    }
+  }
+  last.message += ' (tried ' + list.join(', ') + ')'; throw last;
 }
 async function photoPrep(file) {                            // keeps the picture sharp enough to read a panel: long side up to 2560 px, JPEG
   let im;
