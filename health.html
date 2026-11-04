@@ -546,7 +546,7 @@ async function loadAny(file, onProgress) {
    Opened as a file on your computer: the summary is kept in this browser.
    Served over https (GitHub Pages): nothing is kept in the browser. The summary lives in your
    OneDrive behind the Microsoft sign-in (section 4b), the same way the Collector Overview page works. */
-const PAGE_VERSION = '2026-11-03b';                       // bump on every change, same habit as the Overview page; shown next to the title
+const PAGE_VERSION = '2026-11-03c';                       // bump on every change, same habit as the Overview page; shown next to the title
 const CLOUD = location.protocol === 'https:';
 const KEY = 'healthlog.summary.v1';
 const Store = {
@@ -1271,25 +1271,29 @@ async function gemCall(b64, mime) {
   const tries = [
     ['i1', 'interactions', {model, input: inp, response_format: {type: 'text', mime_type: 'application/json'}}],
     ['i2', 'interactions', {model, input: inp}],
-    ['g1', `models/${model}:generateContent`, {contents: [{parts: [{text: GEM_PROMPT}, {inline_data: {mime_type: mime, data: b64}}]}], generationConfig: {responseMimeType: 'application/json', temperature: 0}}]
+    ['g1', `models/${model}:generateContent`, {contents: [{parts: [{text: GEM_PROMPT}, {inline_data: {mime_type: mime, data: b64}}]}], generationConfig: {responseMimeType: 'application/json', temperature: 0}}],
+    // "simple" requests: key in the address, plain-text content type -> the browser sends no CORS preflight, which some phones/blockers refuse
+    ['g1s', `models/${model}:generateContent?key=${encodeURIComponent(key)}`, {contents: [{parts: [{text: GEM_PROMPT}, {inline_data: {mime_type: mime, data: b64}}]}], generationConfig: {responseMimeType: 'application/json', temperature: 0}}, true],
+    ['i1s', `interactions?key=${encodeURIComponent(key)}`, {model, input: inp, response_format: {type: 'text', mime_type: 'application/json'}}, true]
   ];
   if (gemMode) tries.sort((p, q) => (q[0] === gemMode) - (p[0] === gemMode));
-  let last = null;
-  for (const [id, path, body] of tries) {
+  let last = null; const errs = [];
+  for (const [id, path, body, simple] of tries) {
     const ctl = new AbortController(), tm = setTimeout(() => ctl.abort(), 60000);
     try {
-      const r = await fetch(GEM_BASE + path, {method: 'POST', headers: {'Content-Type': 'application/json', 'x-goog-api-key': key}, body: JSON.stringify(body), signal: ctl.signal});
+      const r = await fetch(GEM_BASE + path, {method: 'POST', headers: simple ? {'Content-Type': 'text/plain'} : {'Content-Type': 'application/json', 'x-goog-api-key': key}, body: JSON.stringify(body), signal: ctl.signal});
       const raw = await r.text(); let j = null; try { j = JSON.parse(raw); } catch (x) { }
       if (!r.ok) {
         const msg = (j && j.error && j.error.message) || raw.slice(0, 160), e = new Error('HTTP ' + r.status + ': ' + msg); e.status = r.status;
         if (r.status === 401 || r.status === 403 || r.status === 429 || (r.status === 400 && /api[ _]?key/i.test(msg))) { e.fatal = true; throw e; }
-        last = e; continue;
+        last = e; errs.push(id + ': ' + e.message.slice(0, 80)); continue;
       }
       const o = gemJson(gemText(j)); if (o) { gemMode = id; return o; }
-      last = new Error('the reply could not be understood');
-    } catch (e) { if (e.fatal) throw e; last = e.name === 'AbortError' ? new Error('Google took too long to answer') : e; }
+      last = new Error('the reply could not be understood'); errs.push(id + ': unreadable reply');
+    } catch (e) { if (e.fatal) throw e; last = e.name === 'AbortError' ? new Error('Google took too long to answer') : e; errs.push(id + ': ' + (last.message || last).toString().slice(0, 80)); }
     finally { clearTimeout(tm); }
   }
+  if (last) last.tries = errs.join(' | ');
   throw last || new Error('no answer');
 }
 async function photoPrep(file) {                            // keeps the picture sharp enough to read a panel: long side up to 2560 px, JPEG
@@ -1321,7 +1325,7 @@ async function photoLookup(file) {
     const m = String(e.message || e);
     fs.err = e.status === 429 ? 'Google’s free limit for label photos is used up for now. Try again later (it resets daily) or use the barcode.'
       : e.status === 401 || e.status === 403 || /api key/i.test(m) ? 'Google did not accept the Gemini key (' + m + '). Use “Change” on the key line below.'
-      : /failed to fetch|networkerror|load failed/i.test(m) ? 'Could not reach Google (' + m + '). Check the connection and try again.'
+      : /failed to fetch|networkerror|load failed/i.test(m) ? 'Could not reach Google (' + m + '). Check the connection and try again.' + (e && e.tries ? ' [' + e.tries + ']' : '')
       : 'Reading the photo failed: ' + m;
     return foodPaintRes();
   }
