@@ -546,7 +546,7 @@ async function loadAny(file, onProgress) {
    Opened as a file on your computer: the summary is kept in this browser.
    Served over https (GitHub Pages): nothing is kept in the browser. The summary lives in your
    OneDrive behind the Microsoft sign-in (section 4b), the same way the Collector Overview page works. */
-const PAGE_VERSION = '2026-11-03a';                       // bump on every change, same habit as the Overview page; shown next to the title
+const PAGE_VERSION = '2026-11-03b';                       // bump on every change, same habit as the Overview page; shown next to the title
 const CLOUD = location.protocol === 'https:';
 const KEY = 'healthlog.summary.v1';
 const Store = {
@@ -1118,7 +1118,7 @@ function pickHTML() {
   return `<div class="pick"><div class="frow"><input id="pickname" class="in wide" value="${esc(p.name != null ? p.name : (it.brand ? it.name + ' (' + it.brand + ')' : it.name))}" aria-label="Name (you can rename it)"><small>${it.src}</small></div>
     <div class="frow"><input id="pickqty" class="in num" type="number" min="0" step="any" value="${p.qty}" aria-label="Amount"><select id="pickunit" class="in" aria-label="Unit">${unitOpts(p)}</select>
     ${S.food.target === 'draft' ? '' : `<select id="pickmeal" class="in" aria-label="${S.food.target === 'fav' ? 'Usual meal' : 'Meal'}">${MEALS.map(m => `<option${m === p.meal ? ' selected' : ''}>${m}</option>`).join('')}</select>`}</div>
-    ${p.cup && p.cup.src !== 'usda' ? `<div class="frow"><label class="meta">1 cup of this weighs <input id="pickcupg" class="in num" type="number" min="0" step="any" value="${p.cup.g > 0 ? rnd(p.cup.g, 1) : ''}" placeholder="grams" style="width:90px" aria-label="Grams in one cup"> g${p.cup.src === 'table' ? ' (rough estimate; change it if you know better)' : p.cup.src === 'saved' ? ' (saved on this device)' : ' (needed for cups; type it once, it is remembered)'}</label></div>` : ''}
+    ${p.cup && p.cup.src !== 'usda' && !it.perServing ? `<div class="frow"><label class="meta">1 cup of this weighs <input id="pickcupg" class="in num" type="number" min="0" step="any" value="${p.cup.g > 0 ? rnd(p.cup.g, 1) : ''}" placeholder="grams" style="width:90px" aria-label="Grams in one cup"> g${p.cup.src === 'table' ? ' (rough estimate; change it if you know better)' : p.cup.src === 'saved' ? ' (saved on this device)' : ' (needed for cups; type it once, it is remembered)'}</label></div>` : ''}
     <p class="meta" id="pickcalc" style="margin:0 0 12px"></p>
     ${S.food.target === 'day' ? `<div class="frow"><label><input type="checkbox" id="pickfav"${p.fav ? ' checked' : ''}> Also save as a favorite (this amount = one serving)</label></div>
     <div class="frow"><button class="btn solid" data-fa="addpick">Add to ${esc(fmtDate(S.food.day, {weekday: 'short', month: 'short', day: 'numeric'}))}</button><button class="btn" data-fa="favonly">Save as favorite only</button><button class="lnk" data-fa="cancel">Cancel</button></div>`
@@ -1135,12 +1135,13 @@ function manualHTML() {
 }
 function resHTML() {
   const fs = S.food;
-  if (fs.busy) return '<p class="meta">Searching…</p>';
+  if (fs.busy) return `<p class="meta">${esc(fs.busyMsg || 'Searching…')}</p>`;
   if (fs.manual) return manualHTML();
   if (fs.pick) return pickHTML();
   let h = '';
   if (fs.err) h += `<p class="meta">${esc(fs.err)}${fs.keyHint ? ' <button class="lnk" data-fa="fdckey">Add your free USDA key</button>' : ''}</p>`;
-  if (fs.results && fs.results.length) h += `<ul class="res">${fs.results.map((it, i) => `<li><button data-fa="pick" data-i="${i}"><span>${esc(it.name)}${it.brand ? `<small> · ${esc(it.brand)}</small>` : ''}<small> · ${it.src}</small></span><span class="rk">${rnd(it.per100.kcal)} Cal / 100 g</span></button></li>`).join('')}</ul>`;
+  if (fs.note && fs.results && fs.results.length) h += `<p class="meta">${esc(fs.note)}</p>`;
+  if (fs.results && fs.results.length) h += `<ul class="res">${fs.results.map((it, i) => `<li><button data-fa="pick" data-i="${i}"><span>${esc(it.name)}${it.brand ? `<small> · ${esc(it.brand)}</small>` : ''}<small> · ${it.src}</small></span><span class="rk">${it.src === 'Photo of label' ? n0(it.perServing ? it.per100.kcal : it.per100.kcal * it.serving.g / 100) + ' Cal / serving' : rnd(it.per100.kcal) + ' Cal / 100 g'}</span></button></li>`).join('')}</ul>`;
   return h;
 }
 function recents() {                                       // foods you logged lately that are not already favorites
@@ -1164,7 +1165,7 @@ function foodPaintAll() {
   Object.assign(S.food, {target: 'day', pick: null, manual: false, results: null, editFav: null, err: ''});
   h.innerHTML = `<div class="daynav"><button class="btn" data-fa="dayprev" aria-label="Previous day">‹</button><input type="date" id="fooddate" value="${S.food.day}" aria-label="Food log day"><button class="btn" data-fa="daynext" aria-label="Next day">›</button><button class="lnk" data-fa="daytoday">Today</button></div>
     <div id="foodday"></div>
-    <div class="foodadd"><form id="foodform" class="frow"><input id="foodq" class="in" type="search" placeholder="Search foods, or type a barcode number" aria-label="Search foods" autocomplete="off"><button class="btn solid" type="submit">Search</button><button class="btn" type="button" data-fa="scan">Scan barcode</button><button class="lnk" type="button" data-fa="manual">Enter calories myself</button></form><div id="foodres"></div></div>
+    <div class="foodadd"><form id="foodform" class="frow"><input id="foodq" class="in" type="search" placeholder="Search foods, or type a barcode number" aria-label="Search foods" autocomplete="off"><button class="btn solid" type="submit">Search</button><button class="btn" type="button" data-fa="scan">Scan barcode</button><button class="btn" type="button" data-fa="photo">Photo of label</button><button class="lnk" type="button" data-fa="manual">Enter calories myself</button></form><div id="foodres"></div><p class="meta" style="margin:6px 0 0">${gemHTML()}</p></div>
     <div id="foodfavs"></div><p class="meta" id="foodstat" role="status"></p><div style="height:26px"></div><div id="foodchart"></div>`;
   foodPaintDay(); foodPaintRes(); foodPaintFavs(); foodPaintStat(); calPaintAll();
   if (S.qa === 'food') { S.qa = ''; const q = $('#foodq'); if (q) q.focus(); }          // came from the home "+ Add food" button
@@ -1222,7 +1223,7 @@ function barcodeCands(code) {                        // typed codes often lack t
 }
 async function barcodeLookup(code) {
   const fs = S.food;
-  Object.assign(fs, {busy: true, err: '', keyHint: false, manual: false, pick: null, results: null}); foodPaintRes();
+  Object.assign(fs, {busy: true, busyMsg: '', note: '', err: '', keyHint: false, manual: false, pick: null, results: null}); foodPaintRes();
   const key = fdcKey() || 'DEMO_KEY', e = encodeURIComponent, ck = 'bc|' + code + '|' + (key === 'DEMO_KEY' ? 0 : 1);
   if (memo.has(ck)) { fs.results = memo.get(ck); fs.busy = false; return foodPaintRes(); }
   const cands = barcodeCands(code), zs = new Set(cands.map(stripZ));
@@ -1241,6 +1242,115 @@ async function barcodeLookup(code) {
     : errs.length ? `Some results are missing (${errs.join('; ')}).` : '';
   foodPaintRes();
 }
+/* Photo of a label (camera or camera roll). Google Gemini only READS the picture: nutrition panel -> the numbers printed on it (never estimated); no panel -> product name and brand,
+   which the page then looks up in USDA Branded and Open Food Facts. Needs a free Gemini key (aistudio.google.com/apikey), kept in the OneDrive food log like the USDA key. */
+const gemKey = () => F.cfg.geminiKey || '';
+const gemModel = () => F.cfg.geminiModel || 'gemini-3.8-flash';
+const GEM_BASE = 'https://generativelanguage.googleapis.com/v1beta/';
+const GEM_PROMPT = `You read a photo or screenshot of a packaged food for a calorie log. Reply with ONE JSON object and nothing else, exactly these keys:
+{"panel_visible": true|false, "product_name": string|null, "brand": string|null, "serving_text": string|null, "serving_grams": number|null, "servings_per_container": number|null, "calories": number|null, "protein_g": number|null, "carbs_g": number|null, "fat_g": number|null, "fiber_g": number|null, "sugar_g": number|null, "sodium_mg": number|null}
+Rules:
+- product_name and brand: as printed on the package or listing title (null if not visible).
+- If a Nutrition Facts panel or nutrition table is readable anywhere in the image (even sideways, upside down, tiny, or on the side of a box), set panel_visible true and copy the numbers EXACTLY as printed for ONE serving. If there are two columns (for example "as packaged" and "as prepared", or per serving and per 100 g), use the per-serving, as-packaged column.
+- NEVER estimate, calculate, infer or use outside knowledge for any nutrition number. If a value is not clearly legible, use null. If no panel is readable, set panel_visible false and every nutrition value null.
+- serving_text: the serving size text as printed (for example "1 taco + 2 tbsp broth (111g)"). serving_grams: the gram weight printed for one serving, else null. servings_per_container: a number ("about 8" -> 8) or null.`;
+let gemMode = '';
+const gemNum = v => { if (v == null || v === '') return null; const n = typeof v === 'number' ? v : parseFloat(String(v).replace(/[^0-9.\-]/g, '')); return isFinite(n) ? n : null; };
+function gemText(j) {                                       // text of the reply, for the Interactions API (steps) or the older generateContent (candidates)
+  if (!j) return '';
+  if (typeof j.output_text === 'string') return j.output_text;
+  const txt = a => (a || []).filter(x => x && typeof x.text === 'string').map(x => x.text).join('');
+  if (Array.isArray(j.steps)) { const m = j.steps.filter(s => s && s.type === 'model_output').map(s => txt(s.content)).join(''); if (m) return m; }
+  if (Array.isArray(j.outputs)) { const m = j.outputs.map(o => typeof o.text === 'string' ? o.text : txt(o.content)).join(''); if (m) return m; }
+  if (j.candidates && j.candidates[0] && j.candidates[0].content) return txt(j.candidates[0].content.parts);
+  return '';
+}
+function gemJson(s) { s = String(s).replace(/```(?:json)?/gi, ''); const a = s.indexOf('{'), b = s.lastIndexOf('}'); if (a < 0 || b <= a) return null; try { return JSON.parse(s.slice(a, b + 1)); } catch (x) { return null; } }
+async function gemCall(b64, mime) {
+  const key = gemKey(), model = gemModel(), img = {type: 'image', mime_type: mime, data: b64}, inp = [{type: 'text', text: GEM_PROMPT}, img];
+  const tries = [
+    ['i1', 'interactions', {model, input: inp, response_format: {type: 'text', mime_type: 'application/json'}}],
+    ['i2', 'interactions', {model, input: inp}],
+    ['g1', `models/${model}:generateContent`, {contents: [{parts: [{text: GEM_PROMPT}, {inline_data: {mime_type: mime, data: b64}}]}], generationConfig: {responseMimeType: 'application/json', temperature: 0}}]
+  ];
+  if (gemMode) tries.sort((p, q) => (q[0] === gemMode) - (p[0] === gemMode));
+  let last = null;
+  for (const [id, path, body] of tries) {
+    const ctl = new AbortController(), tm = setTimeout(() => ctl.abort(), 60000);
+    try {
+      const r = await fetch(GEM_BASE + path, {method: 'POST', headers: {'Content-Type': 'application/json', 'x-goog-api-key': key}, body: JSON.stringify(body), signal: ctl.signal});
+      const raw = await r.text(); let j = null; try { j = JSON.parse(raw); } catch (x) { }
+      if (!r.ok) {
+        const msg = (j && j.error && j.error.message) || raw.slice(0, 160), e = new Error('HTTP ' + r.status + ': ' + msg); e.status = r.status;
+        if (r.status === 401 || r.status === 403 || r.status === 429 || (r.status === 400 && /api[ _]?key/i.test(msg))) { e.fatal = true; throw e; }
+        last = e; continue;
+      }
+      const o = gemJson(gemText(j)); if (o) { gemMode = id; return o; }
+      last = new Error('the reply could not be understood');
+    } catch (e) { if (e.fatal) throw e; last = e.name === 'AbortError' ? new Error('Google took too long to answer') : e; }
+    finally { clearTimeout(tm); }
+  }
+  throw last || new Error('no answer');
+}
+async function photoPrep(file) {                            // keeps the picture sharp enough to read a panel: long side up to 2560 px, JPEG
+  let im;
+  try { im = await createImageBitmap(file); }
+  catch (x) { im = await new Promise((res, rej) => { const u = URL.createObjectURL(file), i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('That picture could not be opened.')); i.src = u; }); }
+  const w = im.width || im.naturalWidth, h = im.height || im.naturalHeight, s = Math.min(1, 2560 / Math.max(w, h)), c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(w * s)); c.height = Math.max(1, Math.round(h * s));
+  c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', 0.9).split(',')[1];
+}
+function labelItem(j) {                                     // a food from the numbers printed on the label (null unless calories, protein, carbs and fat were all read)
+  const kc = gemNum(j.calories), p = gemNum(j.protein_g), c = gemNum(j.carbs_g), f = gemNum(j.fat_g);
+  if (!j.panel_visible || kc == null || p == null || c == null || f == null || kc < 0) return null;
+  const g = gemNum(j.serving_grams) > 0 ? gemNum(j.serving_grams) : 0;
+  let lab = String(j.serving_text || '').trim() || 'serving'; if (g && !/\d\s*g\b/i.test(lab)) lab += ` (${rnd(g)} g)`;
+  const nm = String(j.product_name || '').trim() || 'Food from photo';
+  return {src: 'Photo of label', name: nm, brand: String(j.brand || '').trim(), perServing: !g,
+    per100: g ? {kcal: kc * 100 / g, p: p * 100 / g, c: c * 100 / g, f: f * 100 / g} : {kcal: kc, p, c, f}, serving: {label: lab, g: g || 100}, read: {kc, p, c, f, lab}};
+}
+async function photoLookup(file) {
+  const fs = S.food;
+  if (!gemKey()) { fs.err = 'Label photos need a free Google Gemini key. Use “Add your free Gemini key” below.'; return foodPaintRes(); }
+  Object.assign(fs, {busy: true, busyMsg: 'Reading the photo… (a few seconds)', err: '', note: '', keyHint: false, manual: false, pick: null, results: null}); foodPaintRes();
+  let j;
+  try { j = await gemCall(await photoPrep(file), 'image/jpeg'); }
+  catch (e) {
+    fs.busy = false; fs.busyMsg = '';
+    const m = String(e.message || e);
+    fs.err = e.status === 429 ? 'Google’s free limit for label photos is used up for now. Try again later (it resets daily) or use the barcode.'
+      : e.status === 401 || e.status === 403 || /api key/i.test(m) ? 'Google did not accept the Gemini key (' + m + '). Use “Change” on the key line below.'
+      : /failed to fetch|networkerror|load failed/i.test(m) ? 'Could not reach Google (' + m + '). Check the connection and try again.'
+      : 'Reading the photo failed: ' + m;
+    return foodPaintRes();
+  }
+  const it = labelItem(j), warn = [];
+  if (it) {
+    const r = it.read, est = r.p * 4 + r.c * 4 + r.f * 9;
+    if (r.kc > 0 && Math.abs(est - r.kc) / r.kc > 0.3) warn.push('The calories do not match protein, carbs and fat well. Check them against the label.');
+    Object.assign(fs, {busy: false, busyMsg: '', results: [it], err: ''});
+    fs.note = `Read from the photo: serving ${r.lab}; ${n0(r.kc)} Cal, protein ${n1(r.p)} g, carbs ${n1(r.c)} g, fat ${n1(r.f)} g. Check these against the label.` + (it.perServing ? ' No gram weight was printed, so only whole servings are offered.' : '') + (warn.length ? ' ' + warn.join(' ') : '');
+    return foodPaintRes();
+  }
+  const q = [j.brand, j.product_name].filter(x => x && String(x).trim()).join(' ').trim();
+  if (!q) { Object.assign(fs, {busy: false, busyMsg: '', err: 'No readable nutrition panel and no product name in that photo. Try a closer picture of the panel, or scan the barcode.'}); return foodPaintRes(); }
+  fs.busyMsg = 'No readable panel. Looking up “' + q + '”…'; foodPaintRes();
+  const keyU = fdcKey() || 'DEMO_KEY', e2 = encodeURIComponent;
+  const [u, o] = await Promise.allSettled([
+    fetchJson(`https://api.nal.usda.gov/fdc/v1/foods/search?query=${e2(q)}&pageSize=8&dataType=Branded&api_key=${e2(keyU)}`),
+    fetchJson(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${e2(q)}&search_simple=1&action=process&json=1&page_size=8&fields=${e2('code,product_name,brands,serving_size,serving_quantity,nutriments')}`)
+  ]);
+  const items = [], errs = [];
+  if (u.status === 'fulfilled') items.push(...(u.value.foods || []).map(usdaItem).filter(Boolean)); else { errs.push('USDA ' + u.reason.message); fs.keyHint = u.reason.message === 'limit reached'; }
+  if (o.status === 'fulfilled') items.push(...(o.value.products || []).map(offItem).filter(Boolean)); else errs.push('Open Food Facts ' + o.reason.message);
+  Object.assign(fs, {busy: false, busyMsg: '', results: items});
+  if (items.length) { fs.note = `The photo had no readable nutrition panel, so these are database matches for “${q}”. Pick the one that matches your package, or take a photo of the panel.`; fs.err = errs.length ? `Some results are missing (${errs.join('; ')}).` : ''; }
+  else fs.err = errs.length ? `The database lookup is not available right now (${errs.join('; ')}).` : `No database match for “${q}”. Take a photo of the nutrition panel, scan the barcode, or enter calories yourself.`;
+  foodPaintRes();
+}
+const gemHTML = () => `<span class="meta gemline">Label photos use Google Gemini (free key). ${gemKey() ? 'Key saved in your OneDrive food log. <button class="lnk" data-fa="gemkey">Change</button>' : '<button class="lnk" data-fa="gemkey">Add your free Gemini key</button> · <a class="lnk" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">get one free</a>'}</span>`;
+const gemPaint = () => document.querySelectorAll('.gemline').forEach(e => { e.outerHTML = gemHTML(); });
 let scanStop = null;
 function scanClose() { if (scanStop) { try { scanStop(); } catch (x) {} scanStop = null; } const h = $('#scanbox'); if (h) h.remove(); }
 async function scanOpen() {
@@ -1290,7 +1400,7 @@ async function scanOpen() {
 async function foodSearch(q) {
   const fs = S.food; if (!q) return;
   if (/^\d{8,14}$/.test(q.replace(/[\s-]/g, ''))) return barcodeLookup(q.replace(/[\s-]/g, ''));
-  Object.assign(fs, {busy: true, err: '', keyHint: false, manual: false, pick: null, results: null}); foodPaintRes();
+  Object.assign(fs, {busy: true, busyMsg: '', note: '', err: '', keyHint: false, manual: false, pick: null, results: null}); foodPaintRes();
   const key = fdcKey() || 'DEMO_KEY', e = encodeURIComponent, ck = q.toLowerCase() + '|' + (key === 'DEMO_KEY' ? 0 : 1);
   if (memo.has(ck)) { fs.results = memo.get(ck); fs.busy = false; fs.err = ''; return foodPaintRes(); }
   const [u, o] = await Promise.allSettled([
@@ -1348,7 +1458,7 @@ function setCup(pk, g, src) {                                     // swaps the t
 }
 const unitOpts = p => p.units.map((u, i) => `<option value="${i}"${i === p.ui ? ' selected' : ''}>${esc(u.label)}</option>`).join('');
 function startPick(item) {
-  const c = cupLookup(item), units = [...(item.serving ? [item.serving] : []), ...hhUnits(c.g, c.src), {label: 'grams', g: 1}];
+  const c = cupLookup(item), units = item.perServing ? [item.serving] : [...(item.serving ? [item.serving] : []), ...hhUnits(c.g, c.src), {label: 'grams', g: 1}];
   S.food.pick = {item, units, cup: c, ui: item.serving ? 0 : units.length - 1, qty: item.serving ? 1 : 100, meal: mealFor(nowHM()), touched: false};
   foodPaintRes();
   if (item.src === 'USDA' && item.fdc) loadPortions(item);
@@ -1372,7 +1482,7 @@ function pickCalc(touch = true) {
   const p = readPick(); if (!p) return; if (touch) p.touched = true;
   const v = pickValues(p), el = $('#pickcalc');
   if (el && v.u.hh && !(v.u.g > 0)) { el.textContent = 'Type how many grams one cup of this food weighs (box above) to get calories.'; return; }
-  if (el) el.textContent = `${rnd(v.g)} g · ${rnd(v.kcal)} Cal · protein ${rnd(v.p, 1)} g · carbs ${rnd(v.c, 1)} g · fat ${rnd(v.f, 1)} g`;
+  if (el) el.textContent = `${p.item.perServing ? '' : rnd(v.g) + ' g · '}${rnd(v.kcal)} Cal · protein ${rnd(v.p, 1)} g · carbs ${rnd(v.c, 1)} g · fat ${rnd(v.f, 1)} g`;
 }
 function addEntry(e) { F.entries.push(e); foodPaintDay(); foodPaintFavs(); foodDirty(); }
 function addFromPick(favOnly) {
@@ -1441,6 +1551,13 @@ function foodAct(a, ds) {
     case 'daynext': return setDay(addDays(fs.day, 1));
     case 'daytoday': return setDay(today());
     case 'scan': return scanOpen();
+    case 'photo': {
+      if (!gemKey()) { fs.err = 'Label photos need a free Google Gemini key. Use “Add your free Gemini key” below the search box (aistudio.google.com/apikey).'; fs.results = null; fs.pick = null; fs.manual = false; return foodPaintRes(); }
+      let inp = $('#foodphoto');
+      if (!inp) { inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.id = 'foodphoto'; inp.hidden = true; inp.addEventListener('change', () => { const f = inp.files && inp.files[0]; inp.value = ''; if (f) photoLookup(f); }); document.body.appendChild(inp); }
+      inp.click(); return;
+    }
+    case 'gemkey': { const k = window.prompt('Paste your free Google Gemini API key (create it at aistudio.google.com/apikey). It is kept in your OneDrive food log, never in the page:'); if (k && k.trim()) { F.cfg = {...F.cfg, geminiKey: k.trim(), t: Date.now()}; foodDirty(); fs.err = 'Gemini key saved. Tap Photo of label.'; foodPaintRes(); gemPaint(); } return; }
     case 'scanstop': scanClose(); return;
     case 'manual': scanClose(); fs.manual = true; fs.pick = null; fs.err = ''; fs.results = null; foodPaintRes(); { const n = $('#manualform input[name=name]'); if (n) n.focus(); } return;
     case 'cancel': fs.manual = false; fs.pick = null; fs.editFav = null; foodPaintRes(); return;
@@ -1887,7 +2004,7 @@ function favScreen() {
   app.innerHTML = `<section class="first"><p style="margin:0 0 6px"><a href="#">← Back to Health log</a></p><h2>Favorites</h2>
     <p class="lede">Tap Edit to change one, or build a new one. Favorites show as one-tap chips in the Food section.</p>
     <div id="favlist"></div><div style="height:22px"></div><div id="favbuild"></div>
-    <div class="foodadd"><form id="foodform" class="frow"><input id="foodq" class="in" type="search" placeholder="${dr ? 'Search a food to add to this meal' : 'Search a food to save as a favorite'}" aria-label="Search foods" autocomplete="off"><button class="btn solid" type="submit">Search</button><button class="btn" type="button" data-fa="scan">Scan barcode</button></form><div id="foodres"></div></div>
+    <div class="foodadd"><form id="foodform" class="frow"><input id="foodq" class="in" type="search" placeholder="${dr ? 'Search a food to add to this meal' : 'Search a food to save as a favorite'}" aria-label="Search foods" autocomplete="off"><button class="btn solid" type="submit">Search</button><button class="btn" type="button" data-fa="scan">Scan barcode</button><button class="btn" type="button" data-fa="photo">Photo of label</button></form><div id="foodres"></div></div>
     <p class="meta" id="foodstat" role="status">${esc(S.food.save || '')}</p>${keyHTML()}</section>`;
   favListPaint(); favBuildPaint(); foodPaintRes();
 }
