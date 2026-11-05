@@ -546,7 +546,7 @@ async function loadAny(file, onProgress) {
    Opened as a file on your computer: the summary is kept in this browser.
    Served over https (GitHub Pages): nothing is kept in the browser. The summary lives in your
    OneDrive behind the Microsoft sign-in (section 4b), the same way the Collector Overview page works. */
-const PAGE_VERSION = '2026-11-05a';                       // bump on every change, same habit as the Overview page; shown next to the title
+const PAGE_VERSION = '2026-11-05b';                       // bump on every change, same habit as the Overview page; shown next to the title
 const CLOUD = location.protocol === 'https:';
 const KEY = 'healthlog.summary.v1';
 const Store = {
@@ -1106,7 +1106,7 @@ function foodDayHTML() {
     ${cell('Calories burned', io.out != null ? n0(io.out) : '–', io.out != null ? 'Cal' : '', io.burn ? `${n0(io.burn.base)} everyday + ${n0(io.burn.ex)} exercise${io.apple != null ? ' · Apple: ' + n0(io.apple) : ''}` : io.out != null ? `${n0(x.basal)} resting + ${n0(x.move)} active (Apple; add a weigh-in for the standard burn)${d === today() ? ', so far today' : ''}` : 'add a weigh-in (and import an export) for a burn estimate')}
     ${cell('In minus burned', net != null ? (net > 0 ? '+' : '−') + n0(Math.abs(net)) : '–', net != null ? 'Cal' : '', net != null && d === today() && io.burn ? 'full-day everyday burn + exercise so far' : net != null && d === today() ? 'burn is still counting today' : '')}
     ${cell('Protein · carbs · fat', `${rnd(t.p)} · ${rnd(t.c)} · ${rnd(t.f)}`, 'g', 'logged here')}</div>`;
-  const rows = ents.map(e => `<tr><td>${esc(e.meal)}<small>${esc(e.t)}</small></td><td>${esc(e.name)}${e.amt ? `<small>${esc(e.amt)}</small>` : ''}${e.u ? ` <span class="qtyc"><button data-fa="qtydn" data-id="${esc(e.id)}" aria-label="One less">−</button><button data-fa="qtyup" data-id="${esc(e.id)}" aria-label="One more">+</button></span>` : ''}</td><td class="num">${n0(e.kcal)}</td><td class="num">${rnd(e.p)}</td><td class="num">${rnd(e.c)}</td><td class="num">${rnd(e.f)}</td><td class="num"><button class="lnk" data-fa="fav" data-id="${esc(e.id)}" title="Save as a favorite" aria-label="Save as a favorite">★</button> <button class="lnk" data-fa="del" data-id="${esc(e.id)}" aria-label="Delete ${esc(e.name)}">×</button></td></tr>`).join('');
+  const rows = ents.map(e => `<tr><td><select class="in" data-mealfor="${esc(e.id)}" aria-label="Change meal for ${esc(e.name)}" style="padding:2px 4px">${MEALS.map(m => `<option${m === e.meal ? ' selected' : ''}>${m}</option>`).join('')}</select><small>${esc(e.t)}</small></td><td>${esc(e.name)}${e.amt ? `<small>${esc(e.amt)}</small>` : ''}${e.u ? ` <span class="qtyc"><button data-fa="qtydn" data-id="${esc(e.id)}" aria-label="One less">−</button><button data-fa="qtyup" data-id="${esc(e.id)}" aria-label="One more">+</button></span>` : ''}</td><td class="num">${n0(e.kcal)}</td><td class="num">${rnd(e.p)}</td><td class="num">${rnd(e.c)}</td><td class="num">${rnd(e.f)}</td><td class="num"><button class="lnk" data-fa="fav" data-id="${esc(e.id)}" title="Save as a favorite" aria-label="Save as a favorite">★</button> <button class="lnk" data-fa="del" data-id="${esc(e.id)}" aria-label="Delete ${esc(e.name)}">×</button></td></tr>`).join('');
   const table = ents.length ? `<div class="tablewrap" style="margin-top:20px"><table><thead><tr><th>Meal</th><th>Food</th><th class="num">Cal</th><th class="num">Protein</th><th class="num">Carbs</th><th class="num">Fat</th><th></th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td></td><td>Total</td><td class="num">${n0(t.k)}</td><td class="num">${rnd(t.p)}</td><td class="num">${rnd(t.c)}</td><td class="num">${rnd(t.f)}</td><td></td></tr></tfoot></table></div>
     <p class="meta">Save a meal as a favorite: ${MEALS.filter(m => ents.some(e => e.meal === m)).map(m => `<button class="btn" data-fa="savemeal" data-m="${m}">${m}</button>`).join(' ')}</p>` : `<p class="note" style="padding:18px 0 0">Nothing logged for ${esc(fmtDate(d, {weekday: 'long', month: 'short', day: 'numeric'}))} yet.</p>`;
   const af = actFactor(), fopt = [[1.2, 'Little movement (desk day)'], [1.3, 'Light activity (on your feet some)'], [1.4, 'Active day (on your feet most of it)']];
@@ -1644,6 +1644,11 @@ document.addEventListener('submit', ev => {
   else if (ev.target.id === 'manualform') { ev.preventDefault(); manualAdd(new FormData(ev.target)); }
 });
 document.addEventListener('input', ev => { if (ev.target.id === 'favqty') S.food.fq = parseFloat(ev.target.value) || 1; if (ev.target.id === 'favsel') { const f = F.favs[+ev.target.value]; S.food.fsel = f ? f.id : ''; } if (ev.target.id === 'pickqty' || ev.target.id === 'pickunit' || ev.target.id === 'pickmeal' || ev.target.id === 'pickname' || ev.target.id === 'pickfav' || ev.target.id === 'pickcupg') pickCalc(); });
+document.addEventListener('change', ev => {
+  const sel = ev.target.dataset && ev.target.dataset.mealfor; if (!sel) return;      // change which meal a logged food belongs to
+  const e = F.entries.find(x => x.id === sel), m = ev.target.value; if (!e || !MEALS.includes(m) || e.meal === m) return;
+  e.meal = m; if (e.d !== today()) e.t = MEAL_T[m]; foodPaintDay(); foodDirty();
+});
 document.addEventListener('change', ev => { if (ev.target.id === 'fooddate' && ev.target.value) { S.food.day = ev.target.value; foodPaintDay(); } });
 
 /* ---------- 6c. weight + "my math" calorie estimate ----------
