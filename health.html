@@ -546,7 +546,7 @@ async function loadAny(file, onProgress) {
    Opened as a file on your computer: the summary is kept in this browser.
    Served over https (GitHub Pages): nothing is kept in the browser. The summary lives in your
    OneDrive behind the Microsoft sign-in (section 4b), the same way the Collector Overview page works. */
-const PAGE_VERSION = '2026-11-03h';                       // bump on every change, same habit as the Overview page; shown next to the title
+const PAGE_VERSION = '2026-11-05a';                       // bump on every change, same habit as the Overview page; shown next to the title
 const CLOUD = location.protocol === 'https:';
 const KEY = 'healthlog.summary.v1';
 const Store = {
@@ -1654,18 +1654,20 @@ document.addEventListener('change', ev => { if (ev.target.id === 'fooddate' && e
 const LB = 0.45359237, KM = 1.609344;
 const MET = {Cycling: 7.5, Swimming: 7, HighIntensityIntervalTraining: 8, TraditionalStrengthTraining: 5, FunctionalStrengthTraining: 5, CoreTraining: 4, Elliptical: 5, Rowing: 7, Yoga: 3, Pilates: 3.5, StairClimbing: 8, MixedCardio: 7, Dance: 5, Tennis: 7, Basketball: 6.5, Soccer: 7, Golf: 3.5, Cooldown: 2.5, Flexibility: 2.5, Other: 4};
 const WALKRUN = new Set(['Running', 'Walking', 'Hiking']);
-const wSlot = w => w.s === 'Night' ? 'Night' : 'Morning';           // older weigh-ins have no slot: they count as Morning
-const nowSlot = () => new Date().getHours() < 12 ? 'Morning' : 'Night';
+const SLOTS = ['Morning', 'Post-workout', 'Night'];
+const slotOf = v => SLOTS.includes(v) ? v : 'Morning';
+const wSlot = w => slotOf(w.s);           // older weigh-ins have no slot: they count as Morning
+const nowSlot = () => new Date().getHours() < 12 ? 'Morning' : 'Night';   // Post-workout is picked by hand
 const fmtT = s => { const m = /^(\d\d):(\d\d)$/.exec(s || ''); if (!m) return ''; const H = +m[1]; return `${H % 12 || 12}:${m[2]} ${H < 12 ? 'am' : 'pm'}`; };
-const slotSel = () => `<select name="s" class="in" aria-label="Morning or night weigh-in">${['Morning', 'Night'].map(x => `<option${x === nowSlot() ? ' selected' : ''}>${x}</option>`).join('')}</select>`;
+const slotSel = () => `<select name="s" class="in" aria-label="Morning, post-workout or night weigh-in">${SLOTS.map(x => `<option${x === nowSlot() ? ' selected' : ''}>${x}</option>`).join('')}</select>`;
 function weighList() {                                    // every weigh-in, oldest first: typed ones (Morning/Night) + Health's for days with none typed
   const typed = new Set(F.weights.map(w => w.d)), o = [];
   for (const [d, v] of (M ? M.weights : [])) if (!typed.has(d)) o.push({d, lb: v, src: 'Health', s: '', t: ''});
   for (const w of F.weights) o.push({d: w.d, lb: w.lb, src: 'entered here', id: w.id, s: wSlot(w), t: w.t || ''});
-  return o.sort((x, y) => x.d < y.d ? -1 : x.d > y.d ? 1 : x.s === y.s ? 0 : x.s === 'Morning' ? -1 : 1);
+  return o.sort((x, y) => x.d < y.d ? -1 : x.d > y.d ? 1 : x.s === y.s ? 0 : SLOTS.indexOf(x.s) - SLOTS.indexOf(y.s));
 }
 function allWeights() {                                   // [[date, lb, src, id]] one per day (two weigh-ins on a day are averaged), sorted
-  const g = new Map(); for (const w of weighList()) { if (!g.has(w.d)) g.set(w.d, []); g.get(w.d).push(w); }
+  const g = new Map(); for (const w of weighList()) { if (w.s === 'Post-workout') continue; if (!g.has(w.d)) g.set(w.d, []); g.get(w.d).push(w); }
   return [...g].sort((x, y) => x[0] < y[0] ? -1 : 1).map(([d, a]) => [d, Math.round(a.reduce((p, c) => p + c.lb, 0) / a.length * 10) / 10, a[0].src, a.length === 1 ? a[0].id : undefined]);
 }
 function weightOn(ws, d) {                                // nearest weigh-in on or before the day, else the first one
@@ -1743,7 +1745,7 @@ function wtPaint() {
   }
   if (ws.length >= 2 && S.range !== 'all') { const f = ws[0], l = ws[ws.length - 1]; st += cell('Since first weigh-in', sg(l[1] - f[1]), 'lb', `from ${n1(f[1])} on ${fmtDate(f[0])}`); }
   h.innerHTML = `<form id="wtform" class="frow"><input name="lb" class="in num" type="number" min="50" max="900" step="0.1" placeholder="lb" required aria-label="Weight in pounds"><input name="d" class="in" type="date" value="${today()}" aria-label="Weigh-in date">${slotSel()}<button class="btn solid" type="submit">Add weigh-in</button><span class="meta" id="wtstat" style="margin:0"></span></form>
-    <p class="meta" style="margin:6px 0 0">One Morning and one Night weigh-in per day; a new one replaces the old one for that part of the day.</p>
+    <p class="meta" style="margin:6px 0 0">One Morning, one Post-workout and one Night weigh-in per day; a new one replaces the old one for that slot. Post-workout weigh-ins show on the chart but are left out of the daily average and the calorie math (sweat loss would skew them).</p>
     ${st ? `<div class="stats" style="margin:18px 0 0">${st}</div>` : ''}
     <div id="wtchart" style="margin:18px 0"></div>
     ${S.range !== 'all' ? '<p class="meta">Pick <b>All</b> in the date range above to see your whole history.</p>' : ''}
@@ -1752,11 +1754,12 @@ function wtPaint() {
   for (let i = charts.length - 1; i >= 0; i--) if (charts[i].id === 'c-wt') charts.splice(i, 1);
   let series = null, labels = null;
   if (gran === 'day') {
-    const mo = new Map(), ni = new Map(); for (const w of wl) (w.s === 'Night' ? ni : mo).set(w.d, w.lb);
+    const mo = new Map(), ni = new Map(), po = new Map(); for (const w of wl) (w.s === 'Night' ? ni : w.s === 'Post-workout' ? po : mo).set(w.d, w.lb);
     const tr = days.map(d => { let s = 0, c = 0; for (let k = 0; k < 7; k++) { const v = byDay.get(addDays(d, -k)); if (v != null) { s += v; c++; } } return c ? s / c : null; });
     labels = days;
     series = [{name: 'Morning', color: 'var(--c-weight)', type: 'line', values: days.map(d => mo.has(d) ? mo.get(d) : null), fmt: x => n1(x) + ' lb', connect: true, dots: true}];
     if (days.some(d => ni.has(d))) series.push({name: 'Night', color: 'var(--c-steps)', type: 'line', values: days.map(d => ni.has(d) ? ni.get(d) : null), fmt: x => n1(x) + ' lb', connect: true, dots: true});
+    if (days.some(d => po.has(d))) series.push({name: 'Post-workout', color: 'var(--c-ex)', type: 'line', values: days.map(d => po.has(d) ? po.get(d) : null), fmt: x => n1(x) + ' lb', connect: false, dots: true});
     if (inR.length >= 3) series.push({name: '7-day average', color: 'var(--ink)', type: 'line', thin: true, values: tr, fmt: x => n1(x) + ' lb', connect: true});
   } else {
     const wt = bucketed(days, gran, d => byDay.has(d) ? byDay.get(d) : null);
@@ -1804,7 +1807,7 @@ document.addEventListener('submit', ev => {
   if (ev.target.id !== 'wtform') return; ev.preventDefault();
   const fd = new FormData(ev.target), lb = parseFloat(fd.get('lb')), d = fd.get('d');
   if (!(lb >= 50 && lb <= 900) || !/^\d{4}-\d\d-\d\d$/.test(d)) return;
-  const s = fd.get('s') === 'Night' ? 'Night' : 'Morning';
+  const s = slotOf(fd.get('s'));
   for (const o of F.weights.filter(w => w.d === d && wSlot(w) === s)) F.tomb.push(o.id);   // one weigh-in per day per Morning/Night: the new one replaces it
   F.weights = F.weights.filter(w => !(w.d === d && wSlot(w) === s)); F.weights.push({id: uid(), d, s, t: d === today() ? nowHM() : '', lb: Math.round(lb * 10) / 10});
   calPaintAll(); foodDirty();
@@ -2197,7 +2200,7 @@ document.addEventListener('submit', ev => {
   }
   if (ev.target.id !== 'homewt') return; ev.preventDefault();
   const lb = parseFloat(new FormData(ev.target).get('lb')), d = today(); if (!foodReady || !(lb >= 50 && lb <= 900)) return;
-  const s = ev.target.elements.s && ev.target.elements.s.value === 'Night' ? 'Night' : 'Morning';
+  const s = slotOf(ev.target.elements.s && ev.target.elements.s.value);
   for (const o of F.weights.filter(w => w.d === d && wSlot(w) === s)) F.tomb.push(o.id);
   F.weights = F.weights.filter(w => !(w.d === d && wSlot(w) === s)); F.weights.push({id: uid(), d, s, t: nowHM(), lb: Math.round(lb * 10) / 10});
   S.homeMsg = `Weigh-in saved: ${n1(Math.round(lb * 10) / 10)} lb (${s.toLowerCase()}).`; foodDirty(); homePaint();
