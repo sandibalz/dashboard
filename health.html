@@ -49,6 +49,9 @@ button{cursor:pointer}
 .btn{border:1px solid var(--rule);background:transparent;border-radius:8px;padding:5px 12px;font-size:13px;color:var(--ink)}
 .btn:hover{border-color:var(--ink3)}
 .btn.solid{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+#rcpov{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px}
+#rcpov .rcp{background:var(--bg);color:var(--ink);border:1px solid var(--rule);border-radius:14px;max-width:560px;width:100%;max-height:85vh;overflow:auto;padding:16px 18px}
+#rcpov h3{margin:0 0 4px}#rcpov ol{padding-left:22px}#rcpov li,#rcpov p{margin:0 0 8px;line-height:1.45}#rcpov .rh{font-weight:700;margin:12px 0 4px}
 .lnk{border:0;background:none;padding:0;color:var(--ink2);font-size:12.5px;text-decoration:underline;text-underline-offset:3px}
 .lnk:hover{color:var(--ink)}
 
@@ -546,7 +549,7 @@ async function loadAny(file, onProgress) {
    Opened as a file on your computer: the summary is kept in this browser.
    Served over https (GitHub Pages): nothing is kept in the browser. The summary lives in your
    OneDrive behind the Microsoft sign-in (section 4b), the same way the Collector Overview page works. */
-const PAGE_VERSION = '2026-11-05b';                       // bump on every change, same habit as the Overview page; shown next to the title
+const PAGE_VERSION = '2026-11-06b';                       // bump on every change, same habit as the Overview page; shown next to the title
 const CLOUD = location.protocol === 'https:';
 const KEY = 'healthlog.summary.v1';
 const Store = {
@@ -1158,7 +1161,7 @@ const keyHTML = () => fdcKey() ? `<p class="meta">USDA key saved in your OneDriv
 const recentHTML = () => { const r = recents(); return r.length ? `<div class="favs"><span class="meta">Recent</span>${r.map((e, i) => `<span class="favchip"><button data-fa="recadd" data-i="${i}" title="${esc(e.amt || '')}">${esc(e.name)} · ${n0(e.kcal)}</button></span>`).join('')}</div>` : ''; };
 const favOpt = (f, i) => `<option value="${i}"${S.food.fsel === f.id ? ' selected' : ''}>${esc(f.name)} · ${n0(f.kcal)} Cal${f.items ? ` · ${f.items.length} items` : ''}</option>`;
 const favSelHTML = () => { const m = [], o = []; F.favs.forEach((f, i) => (f.items ? m : o).push(favOpt(f, i))); const g = (t, a) => a.length ? (m.length && o.length ? `<optgroup label="${t}">${a.join('')}</optgroup>` : a.join('')) : ''; return `<select id="favsel" class="in" aria-label="Choose a favorite" style="max-width:100%"><option value="">Choose a favorite (${F.favs.length})…</option>${g('Meals', m)}${g('Single foods', o)}</select>`; };
-const favsHTML = () => `<div class="favs"><span class="meta">Favorites</span>${F.favs.length ? favSelHTML() + `<label class="meta">How many <input id="favqty" class="in num" type="number" min="0.5" step="0.5" value="${S.food.fq || 1}" style="width:68px" aria-label="How many to add"></label><button class="btn solid" data-fa="favaddsel">Add</button>` : '<span class="meta">None yet</span>'}<a class="lnk" href="#favorites">Manage favorites</a></div><p class="meta">Pick a favorite and tap Add to log it. Build, edit or delete favorites and meals in Manage favorites, or tap ★ on any row below to save it.</p>` + recentHTML() + keyHTML();
+const favsHTML = () => `<div class="favs"><span class="meta">Favorites</span>${F.favs.length ? favSelHTML() + `<label class="meta">How many <input id="favqty" class="in num" type="number" min="0.5" step="0.5" value="${S.food.fq || 1}" style="width:68px" aria-label="How many to add"></label><button class="btn solid" data-fa="favaddsel">Add</button><button class="btn" data-fa="recipeview">Recipe</button>` : '<span class="meta">None yet</span>'}<a class="lnk" href="#favorites">Manage favorites</a></div><p class="meta">Pick a favorite and tap Add to log it. Build, edit or delete favorites and meals in Manage favorites, or tap ★ on any row below to save it.</p>` + recentHTML() + keyHTML();
 
 function foodPaintAll() {
   const h = $('#foodhost'); if (!h || !M) return;
@@ -1266,14 +1269,14 @@ function gemText(j) {                                       // text of the reply
   return '';
 }
 function gemJson(s) { s = String(s).replace(/```(?:json)?/gi, ''); const a = s.indexOf('{'), b = s.lastIndexOf('}'); if (a < 0 || b <= a) return null; try { return JSON.parse(s.slice(a, b + 1)); } catch (x) { return null; } }
-async function gemCall1(b64, mime, model) {
-  const key = gemKey(), img = {type: 'image', mime_type: mime, data: b64}, inp = [{type: 'text', text: GEM_PROMPT}, img];
+async function gemCall1(b64, mime, model, opt) {            // opt = {prompt, imgs[]}: several pictures and another instruction (used by Photo of recipe)
+  const key = gemKey(), GP = (opt && opt.prompt) || GEM_PROMPT, imgs = (opt && opt.imgs) || [b64], inp = [{type: 'text', text: GP}, ...imgs.map(d => ({type: 'image', mime_type: mime, data: d}))];
   const tries = [
     ['i1', 'interactions', {model, input: inp, response_format: {type: 'text', mime_type: 'application/json'}}],
     ['i2', 'interactions', {model, input: inp}],
-    ['g1', `models/${model}:generateContent`, {contents: [{parts: [{text: GEM_PROMPT}, {inline_data: {mime_type: mime, data: b64}}]}], generationConfig: {responseMimeType: 'application/json', temperature: 0}}],
+    ['g1', `models/${model}:generateContent`, {contents: [{parts: [{text: GP}, ...imgs.map(d => ({inline_data: {mime_type: mime, data: d}}))]}], generationConfig: {responseMimeType: 'application/json', temperature: 0}}],
     // "simple" requests: key in the address, plain-text content type -> the browser sends no CORS preflight, which some phones/blockers refuse
-    ['g1s', `models/${model}:generateContent?key=${encodeURIComponent(key)}`, {contents: [{parts: [{text: GEM_PROMPT}, {inline_data: {mime_type: mime, data: b64}}]}], generationConfig: {responseMimeType: 'application/json', temperature: 0}}, true],
+    ['g1s', `models/${model}:generateContent?key=${encodeURIComponent(key)}`, {contents: [{parts: [{text: GP}, ...imgs.map(d => ({inline_data: {mime_type: mime, data: d}}))]}], generationConfig: {responseMimeType: 'application/json', temperature: 0}}, true],
     ['i1s', `interactions?key=${encodeURIComponent(key)}`, {model, input: inp, response_format: {type: 'text', mime_type: 'application/json'}}, true]
   ];
   if (gemMode) tries.sort((p, q) => (q[0] === gemMode) - (p[0] === gemMode));
@@ -1298,11 +1301,11 @@ async function gemCall1(b64, mime, model) {
   throw last || new Error('no answer');
 }
 // busy/missing model (503, 500, 504, 404) -> try the next free model; network and key errors stop right away
-async function gemCall(b64, mime) {
+async function gemCall(b64, mime, opt) {
   const list = [gemModel(), 'gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'].filter((m, i, a) => a.indexOf(m) === i);
   let last = null; const notes = [];
   for (const m of list) {
-    try { const o = await gemCall1(b64, mime, m); o._note = 'Model: ' + m + (notes.length ? ' (' + notes.join('; ') + ')' : '') + '.'; return o; }
+    try { const o = await gemCall1(b64, mime, m, opt); o._note = 'Model: ' + m + (notes.length ? ' (' + notes.join('; ') + ')' : '') + '.'; return o; }
     catch (e) {
       last = e; if (e.fatal || ![429, 500, 503, 504, 404].includes(e.status)) throw e;
       notes.push(m + (e.status === 429 ? ' out of quota' : ' busy'));
@@ -1567,6 +1570,48 @@ function logFav(f, q) {                                       // tapping a favor
   }
   foodPaintDay(); foodPaintFavs(); foodDirty();
 }
+const RCP_PROMPT = n => `${n > 1 ? 'These are ' + n + ' screenshots, in order, of ONE recipe. They are consecutive screens of the same page, so the end of one screenshot may repeat the start of the next: write each repeated part only once. ' : 'This is a screenshot of a recipe. '}Transcribe the recipe as plain text, word for word as written. Do not summarize, add, reorder or fix anything. Format: "## Ingredients" then one "- " line per ingredient; "## Method" then numbered steps "1. ", "2. " (keep the step titles as written); any other section such as macros or notes as "## Heading" with "- " lines or a short paragraph. Keep all numbers and units exactly. Leave out emoji, source badges (like "Facebook" or a person's name next to a step), the phone status bar, the time and battery, search boxes, buttons and any other app screen elements. If part of the text is unreadable write [unreadable]. Reply with ONE JSON object and nothing else: {"recipe": "<the text, with \\n for line breaks>"}.`;
+async function recipePhoto(files) {                        // screenshots of a recipe -> text in the Recipe box (checked by the person before Save meal)
+  const d = S.fav.draft, say = m => { const e = $('#rcpstat'); if (e) e.textContent = m; };
+  if (!d || !files.length) return;
+  files = files.slice(0, 8);
+  say(`Reading ${files.length} screenshot${files.length > 1 ? 's' : ''}… (a few seconds)`);
+  try {
+    const imgs = []; for (const f of files) imgs.push(await photoPrep(f));
+    const j = await gemCall(imgs[0], 'image/jpeg', {imgs, prompt: RCP_PROMPT(imgs.length)});
+    const txt = String(j && j.recipe || '').trim();
+    if (!txt) { say('No recipe text was found in the picture' + (files.length > 1 ? 's' : '') + '.'); return; }
+    if (!S.fav.draft) return;
+    const old = (S.fav.draft.recipe || '').trim();
+    S.fav.draft.recipe = old ? old + '\n\n' + txt : txt;
+    const ta = $('#draftrecipe'); if (ta) ta.value = S.fav.draft.recipe;
+    say('Read ' + files.length + ' screenshot' + (files.length > 1 ? 's' : '') + '. Check the text, fix anything wrong, then Save meal. ' + (j._note || ''));
+  } catch (e) {
+    const m = String(e.message || e);
+    say(e.status === 429 ? 'Google’s free limit is used up for now. Try later. ' + m.slice(0, 200) : /api key/i.test(m) || e.status === 401 || e.status === 403 ? 'Google did not accept the Gemini key (' + m.slice(0, 160) + ').' : 'Reading failed: ' + m.slice(0, 220) + (e.tries ? ' [' + e.tries + ']' : ''));
+  }
+}
+function showRecipe(f) {                                    // pop-up with the saved recipe text (f.recipe: lines; "## " = heading, "1. " = step, "- " = bullet)
+  const o = $('#rcpov'); if (o) o.remove();
+  const txt = typeof f.recipe === 'string' && !/^recipes\\/.test(f.recipe) ? f.recipe : '';
+  let body = '', list = null;
+  const close = () => { if (list) { body += `</${list}>`; list = null; } };
+  for (const raw of txt.split('\n')) {
+    const l = raw.trim(); if (!l) { close(); continue; }
+    let m;
+    if ((m = l.match(/^#+\s*(.*)/))) { close(); body += `<div class="rh">${esc(m[1])}</div>`; }
+    else if ((m = l.match(/^\d+[.)]\s*(.*)/))) { if (list !== 'ol') { close(); body += '<ol>'; list = 'ol'; } body += `<li>${esc(m[1])}</li>`; }
+    else if ((m = l.match(/^[-•*]\s*(.*)/))) { if (list !== 'ul') { close(); body += '<ul>'; list = 'ul'; } body += `<li>${esc(m[1])}</li>`; }
+    else { close(); body += `<p>${esc(l)}</p>`; }
+  }
+  close();
+  if (!txt) body = '<p class="meta">No recipe saved for this favorite yet. Tap Edit in Manage favorites to add one.</p>';
+  const mac = `${n0(f.kcal)} Cal · P ${rnd(f.p)} · C ${rnd(f.c)} · F ${rnd(f.f)}`;
+  const ing = f.items && f.items.length ? `<div class="rh">Logged as</div><ul>${f.items.map(x => `<li>${esc(x.name)}${x.amt ? ' <span class="meta">' + esc(x.amt) + '</span>' : ''}</li>`).join('')}</ul>` : '';
+  document.body.insertAdjacentHTML('beforeend', `<div id="rcpov" role="dialog" aria-modal="true" aria-label="Recipe"><div class="rcp"><h3>${esc(f.name)}</h3><p class="meta">${mac}</p>${body}${ing}<div style="text-align:right;margin-top:10px"><button class="btn solid" data-fa="recipeclose">Close</button></div></div></div>`);
+}
+document.addEventListener('keydown', ev => { if (ev.key === 'Escape') { const o = $('#rcpov'); if (o) o.remove(); } });
+document.addEventListener('click', ev => { if (ev.target.id === 'rcpov') ev.target.remove(); });
 function foodAct(a, ds) {
   const fs = S.food;
   const setDay = d => { fs.day = d; foodPaintDay(); };
@@ -1606,7 +1651,7 @@ function foodAct(a, ds) {
       if (!(d.name || '').trim()) { fs.save = 'Give the meal a name first.'; foodPaintStat(); return; }
       if (!d.items.length) { fs.save = 'Add at least one item first.'; foodPaintStat(); return; }
       const sum = k => rnd(d.items.reduce((t, e) => t + e[k], 0), 1), name = d.name.trim();
-      const f = {id: d.id || uid(), name, meal: d.meal, amt: '', kcal: rnd(sum('kcal')), p: sum('p'), c: sum('c'), f: sum('f'), items: d.items.map(x => ({...x}))};
+      const f = {id: d.id || uid(), name, meal: d.meal, amt: '', kcal: rnd(sum('kcal')), p: sum('p'), c: sum('c'), f: sum('f'), items: d.items.map(x => ({...x}))}; if ((d.recipe || '').trim()) f.recipe = d.recipe.trim();
       const at = F.favs.findIndex(x => x.id === f.id);
       F.favs = F.favs.filter(x => x.id === f.id || x.name !== name);
       if (at >= 0) F.favs[F.favs.findIndex(x => x.id === f.id)] = f; else F.favs.push(f);
@@ -1614,9 +1659,17 @@ function foodAct(a, ds) {
     }
     case 'favedit': {
       const f = F.favs[+ds.i]; if (!f) return;
-      if (f.items) { S.fav.draft = {id: f.id, name: f.name, meal: f.meal || 'Lunch', items: f.items.map(x => ({...x}))}; render(); window.scrollTo(0, 0); return; }
+      if (f.items) { S.fav.draft = {id: f.id, name: f.name, meal: f.meal || 'Lunch', recipe: typeof f.recipe === 'string' && !/^recipes\\/.test(f.recipe) ? f.recipe : '', items: f.items.map(x => ({...x}))}; render(); window.scrollTo(0, 0); return; }
       fs.manual = 'fav'; fs.editFav = f.id; fs.pick = null; fs.results = null; foodPaintRes(); { const n = $('#manualform input[name=name]'); if (n) n.focus(); } return;
     }
+    case 'recipeview': { const el = $('#favsel'), f = ds.i != null ? F.favs[+ds.i] : (el && el.value !== '' ? F.favs[+el.value] : null); if (f) showRecipe(f); else if (el) el.focus(); return; }
+    case 'recipephoto': {
+      if (!gemKey()) { const e = $('#rcpstat'); if (e) e.textContent = 'Needs a free Gemini key: use “Add your free Gemini key” below the search box.'; return; }
+      let inp = $('#rcpphoto');
+      if (!inp) { inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.multiple = true; inp.id = 'rcpphoto'; inp.hidden = true; inp.addEventListener('change', () => { const fl = [...(inp.files || [])]; inp.value = ''; if (fl.length) recipePhoto(fl); }); document.body.appendChild(inp); }
+      inp.click(); return;
+    }
+    case 'recipeclose': { const o = $('#rcpov'); if (o) o.remove(); return; }
     case 'favrm': { const f = F.favs[+ds.i]; if (!f || !window.confirm('Delete the favorite “' + f.name + '”?')) return; F.favs.splice(+ds.i, 1); F.favTomb.push(f.id); foodPaintFavs(); return foodDirty(); }
     case 'favnew': fs.manual = 'fav'; fs.editFav = null; fs.pick = null; fs.err = ''; fs.results = null; foodPaintRes(); { const n = $('#manualform input[name=name]'); if (n) n.focus(); } return;
     case 'qtyup': case 'qtydn': {
@@ -2012,7 +2065,7 @@ function favListPaint() {
   if (!F.favs.length) { h.innerHTML = '<p class="note" style="padding:6px 0">No favorites yet. Make one below: build a meal, type a single food, or look one up.</p>'; return; }
   h.innerHTML = F.favs.map((f, i) => `<div class="favrow"><div><b>${esc(f.name)}</b> <span class="rk">${n0(f.kcal)} Cal${f.meal ? ' · ' + esc(f.meal) : ''}</span>
     <small>${f.items ? f.items.map(x => esc(x.name) + ' ' + n0(x.kcal)).join(' · ') : (f.amt ? 'One serving: ' + esc(f.amt) + ' · ' : '') + 'P ' + rnd(f.p) + ' C ' + rnd(f.c) + ' F ' + rnd(f.f)}</small></div>
-    <div class="favact"><button class="btn" data-fa="favedit" data-i="${i}">Edit</button><button class="btn" data-fa="favrm" data-i="${i}" aria-label="Delete ${esc(f.name)}">Delete</button></div></div>`).join('');
+    <div class="favact">${f.recipe ? `<button class="btn" data-fa="recipeview" data-i="${i}">Recipe</button>` : ''}<button class="btn" data-fa="favedit" data-i="${i}">Edit</button><button class="btn" data-fa="favrm" data-i="${i}" aria-label="Delete ${esc(f.name)}">Delete</button></div></div>`).join('');
 }
 function favBuildPaint() {
   const h = $('#favbuild'); if (!h) return;
@@ -2021,6 +2074,8 @@ function favBuildPaint() {
   const sum = k => rnd(d.items.reduce((t, e) => t + e[k], 0), k === 'kcal' ? 0 : 1);
   h.innerHTML = `<div class="pick"><div class="frow"><b>${d.id ? 'Edit meal' : 'New meal'}</b><small class="meta">nothing gets logged; this only saves the meal</small></div>
     <div class="frow"><input id="draftname" class="in wide" placeholder="Name, e.g. Lunch A" value="${esc(d.name)}" aria-label="Meal name"><select id="draftmeal" class="in" aria-label="Usual meal">${MEALS.map(m => `<option${m === d.meal ? ' selected' : ''}>${m}</option>`).join('')}</select></div>
+    <textarea id="draftrecipe" class="in wide" rows="5" style="width:100%;margin:6px 0" placeholder="Recipe (optional). One step per line, e.g. 1. Drain the tuna" aria-label="Recipe text">${esc(d.recipe || '')}</textarea>
+    <div class="frow"><button class="btn" data-fa="recipephoto">Photo of recipe</button><small class="meta" id="rcpstat">Pick one or more screenshots, in order. The text lands above for you to check.</small></div>
     ${d.items.length ? `<div class="tablewrap"><table><thead><tr><th>Item</th><th class="num">Cal</th><th class="num">P</th><th class="num">C</th><th class="num">F</th><th></th></tr></thead><tbody>${d.items.map((x, i) => `<tr><td>${esc(x.name)}${x.amt ? `<small>${esc(x.amt)}</small>` : ''}</td><td class="num">${n0(x.kcal)}</td><td class="num">${rnd(x.p)}</td><td class="num">${rnd(x.c)}</td><td class="num">${rnd(x.f)}</td><td class="num"><button class="lnk" data-fa="draftrm" data-i="${i}" aria-label="Remove ${esc(x.name)}">×</button></td></tr>`).join('')}</tbody><tfoot><tr><td>Total</td><td class="num">${n0(sum('kcal'))}</td><td class="num">${rnd(sum('p'))}</td><td class="num">${rnd(sum('c'))}</td><td class="num">${rnd(sum('f'))}</td><td></td></tr></tfoot></table></div>` : '<p class="meta">No items yet. Look a food up below, or type one.</p>'}
     <div class="frow" style="margin-top:10px"><button class="btn" data-fa="draftmanual">Type an item</button><button class="btn solid" data-fa="draftsave">Save meal</button><button class="lnk" data-fa="draftcancel">Cancel</button></div></div>`;
 }
@@ -2042,7 +2097,7 @@ function favScreen() {
 }
 function favSetView() { const v = routeFromHash(); if (v !== S.view) { S.view = v; S.homeMsg = ''; S.fav.draft = null; window.scrollTo(0, 0); render(); } }
 window.addEventListener('hashchange', favSetView);
-document.addEventListener('input', ev => { const d = S.fav.draft; if (!d) return; if (ev.target.id === 'draftname') d.name = ev.target.value; else if (ev.target.id === 'draftmeal') d.meal = ev.target.value; });
+document.addEventListener('input', ev => { const d = S.fav.draft; if (!d) return; if (ev.target.id === 'draftname') d.name = ev.target.value; else if (ev.target.id === 'draftmeal') d.meal = ev.target.value; else if (ev.target.id === 'draftrecipe') d.recipe = ev.target.value; });
 
 function page() {
   const [a, b] = range(), days = listDays(a, b), gran = granFor(days.length);
