@@ -327,7 +327,7 @@ async function inputStatus(tries = 0) {
     b.dataset.ok = st.connected ? '1' : '';
     if (!st.connected && tries < 20 && cur) { b.textContent = 'Input: checking...'; setTimeout(() => { if (cur) inputStatus(tries + 1); }, 1000); return; }
     if (!st.connected) { b.textContent = 'Input: Chrome only'; b.title = 'Helper not connected' + (st.err ? ': ' + st.err : ''); dlog('input helper not connected' + (st.err ? ': ' + st.err : '')); }
-    else { b.textContent = st.mode === 'chrome' ? 'Input: Chrome tabs' : 'Input: Whole desktop'; b.classList.toggle('on', st.mode !== 'chrome'); b.disabled = false; b.dataset.mode = st.mode; }
+    else { b.textContent = 'Input: Whole desktop'; b.classList.add('on'); b.disabled = true; b.dataset.mode = 'auto'; b.title = 'Clicks and typing go to the whole desktop'; if (st.mode === 'chrome') rpc('setmode', { mode: 'auto' }).then(() => inputStatus()).catch(() => {}); }
   } catch { b.textContent = 'Input: Chrome only'; b.dataset.ok = ''; }
 }
 $('#bIn').onclick = async () => {
