@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Balances</title>
+<style>
+:root { --bg:#f1f2f6; --panel:#fff; --line:#e4e7eb; --ink:#2f3542; --mute:#747d8c; --ok:#1e9e55; --bad:#d63031; --warn:#b36b00; --accent:#3867d6; --blue:#2e86de; }
+* { box-sizing: border-box; }
+body { margin: 0; font: 14px/1.4 system-ui, 'Segoe UI', Arial, sans-serif; background: var(--bg); color: var(--ink); padding: 0 16px 40px; padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); }
+.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: var(--bg); padding: 10px 0 8px; display: flex; flex-direction: column; gap: 8px; }
+.row { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+.tbtn { border: 1px solid #ced4da; background: var(--panel); color: var(--ink); border-radius: 6px; padding: 6px 10px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; text-decoration: none; white-space: nowrap; }
+.tbtn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+.tbtn:disabled { opacity: .5; cursor: default; }
+input[type=text] { font: inherit; font-size: 14px; padding: 6px 8px; border: 1px solid #ced4da; border-radius: 6px; background: #fff; color: var(--ink); width: 130px; }
+.muted { color: var(--mute); font-size: 12px; }
+#msg { font-size: 13px; margin: 4px 0; } #msg.err { color: var(--bad); }
+.empty { background: var(--panel); border: 1px dashed #ced4da; border-radius: 8px; padding: 24px; text-align: center; }
+.wrap { overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+table { border-collapse: separate; border-spacing: 0; width: 100%; }
+th, td { border-bottom: 1px solid var(--line); padding: 5px 8px; font-size: 13px; white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
+th { background: #f8f9fb; position: sticky; top: 0; z-index: 2; }
+th.l, td.l { text-align: left; }
+tfoot td { background: #f8f9fb; font-weight: 700; border-top: 2px solid #d5dae1; }
+tr.orow { cursor: pointer; } tr.orow:hover td { background: #f3f7fd; } tr.orow.sel td { background: #e3eefc; } tr.orow.sel td:first-child { box-shadow: inset 4px 0 0 var(--accent); }
+.pos { color: var(--ok); } .neg { color: var(--bad); } .zero { color: #a4abb5; } .nodata { color: #c0c6cf; }
+.sum { font-weight: 700; } .today { background: #fff9e6; } th.today { background: #fff2c2; } .base { background: #fafbfc; }
+td.adj { text-decoration: underline dotted; } sup { font-size: 9px; }
+a.site { color: var(--blue); text-decoration: none; font-weight: 600; }
+.stale { color: var(--warn); } .err { color: var(--bad); }
+h2 { font-size: 15px; margin: 16px 0 8px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
+.card .ct { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.card .tot { font-weight: 700; font-size: 16px; }
+.card .days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; margin-top: 8px; text-align: center; }
+.card .days div { font-size: 12px; padding: 2px 0; border-radius: 4px; } .card .days small { display: block; font-size: 10px; color: var(--mute); }
+.card .act { display: flex; gap: 6px; margin-top: 8px; align-items: center; }
+.card.off { opacity: .55; }
+button.rd { border: none; border-radius: 4px; padding: 3px 9px; font-weight: 700; font-size: 12px; color: #fff; background: var(--blue); cursor: pointer; }
+button.rd.dol { background: #e3e6ea; color: #555; }
+button.rd:disabled { opacity: .5; cursor: default; }
+.note { font-size: 12px; color: var(--mute); line-height: 1.5; margin-top: 10px; }
+#toast { position: fixed; left: 16px; right: 16px; bottom: 16px; background: #2f3542; color: #fff; padding: 10px 12px; border-radius: 8px; font-size: 13px; z-index: 50; }
+</style>
+</head>
+<body>
+<div class="top">
+  <div class="row"><a class="tbtn" href="./" id="back">&larr; Overview</a><b style="font-size:16px">💰 Balances (SC)</b><span class="muted" id="ver"></span></div>
+  <div class="row">
+    <button class="tbtn" id="prev">&#9664;</button><b id="weekLabel"></b><button class="tbtn" id="next">&#9654;</button><button class="tbtn" id="thisWeek">This week</button>
+    <input type="text" id="filter" placeholder="Filter sites…" autocomplete="off">
+    <label class="muted"><input type="checkbox" id="onlyMoved"> activity only</label>
+    <button class="tbtn primary" id="get">&#10227; Get balances</button><button class="tbtn" id="refresh" title="Reload from OneDrive">&#8635;</button>
+  </div>
+</div>
+<div id="msg"></div>
+<div id="owners"></div>
+<h2 id="ownerTitle"></h2>
+<div id="grid"></div>
+<p class="note">Click an owner to see that owner's sites. Sun start = last balance known before Sunday 00:00 (frozen). Each day = that day's closing balance minus the day before; Week Σ = latest minus Sun start; Total now = latest reading (age shown). “·” = no reading that day (the gain lands on the next day with a reading). <b>$</b> on a gain = a redemption was added back so a cash-out does not show as a loss. “~” start = no reading before this week.</p>
+<div id="toast" hidden></div>
+<script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js"></script>
+<script>
+'use strict';
+/* Balances page (web copy of the extension's balances.html; keep the two in step). Reads Profiles/<Owner>/balances.json from OneDrive through Graph
+   (same Microsoft sign-in as the Overview) and writes readBalance / addRedemption command files into that owner's commands/ folder. SC only. */
+const PAGE_VERSION = '2026-11-06a';
+const OWNERS = ['Ben', 'Cindy', 'Jessica', 'Tyler'];
+const GRAPH = 'https://graph.microsoft.com/v1.0', SCOPES = ['Files.ReadWrite'];
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const GET_CAP = 40;
+const EXCL = /wheel|piggy|login[ _-]?check/i; // duplicates of a site's main profile
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const LS = { get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} } };
+const ROOT = LS.get('co.root', '/Documents/Collector-App');
+let pca = null, acct = null, data = {}, sel = '', weekStart = sundayOf(new Date()), sent = {};
+try { sel = new URLSearchParams(location.search).get('owner') || LS.get('co.balOwner', '') || LS.get('co.owner', ''); } catch (e) {}
+
+function sundayOf(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate() - d.getDay()); }
+function dayStart(i) { return new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + i).getTime(); }
+function setMsg(t, bad) { const m = $('msg'); m.textContent = t || ''; m.className = bad ? 'err' : ''; }
+function toast(t, ms) { const e = $('toast'); e.textContent = t; e.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => { e.hidden = true; }, ms || 6000); }
+const enc = (p) => p.split('/').map(encodeURIComponent).join('/');
+const logSafe = (n) => String(n || '').toLowerCase().replace(/[^a-z0-9_.-]/g, '_');
+
+/* ---------- Microsoft sign-in + Graph (same as the Remote page: sign in once on the Overview) ---------- */
+function showSignIn(msg) {
+  $('grid').innerHTML = '<div class="empty">' + esc(msg || 'Sign in with Microsoft to see balances.') + '<br><br><button class="tbtn primary" id="signin">Sign in with Microsoft</button></div>';
+  $('signin').onclick = () => { try { sessionStorage.setItem('co.next', location.pathname.replace(/[^/]*$/, '') + 'balances.html' + location.search); } catch (e) {} location.href = location.pathname.replace(/[^/]*$/, ''); };
+}
+async function token() {
+  try { return (await pca.acquireTokenSilent({ scopes: SCOPES, account: acct })).accessToken; }
+  catch (e) { showSignIn('Microsoft needs you to sign in again.'); throw new Error('sign-in needed'); }
+}
+async function g(path, opt) {
+  opt = opt || {};
+  const t = await token();
+  const r = await fetch(GRAPH + path, Object.assign({}, opt, { headers: Object.assign({ Authorization: 'Bearer ' + t }, opt.headers || {}) }));
+  if (!r.ok) { const e = new Error('Graph ' + r.status); e.status = r.status; throw e; }
+  return r;
+}
+async function readJson(path) {
+  const m = await (await g('/me/drive/root:' + enc(path) + '?select=id,@microsoft.graph.downloadUrl')).json();
+  const u = m['@microsoft.graph.downloadUrl'];
+  const r = u ? await fetch(u) : await g('/me/drive/root:' + enc(path) + ':/content');
+  if (!r.ok) throw new Error('Download ' + r.status);
+  return JSON.parse((await r.text()).replace(/^﻿/, ''));
+}
+async function loadAll(quiet) {
+  if (!quiet) setMsg('Loading…');
+  const res = await Promise.all(OWNERS.map((o) => readJson(ROOT + '/Profiles/' + o + '/balances.json').then((d) => ({ o, d })).catch((e) => ({ o, d: null, err: e }))));
+  res.forEach((r) => { if (r.d) { const ps = {}; for (const id of Object.keys(r.d.profiles || {})) { if (!EXCL.test(String(r.d.profiles[id].n || ''))) ps[id] = r.d.profiles[id]; } r.d.profiles = ps; } data[r.o] = r.d; });
+  const missing = OWNERS.filter((o) => !data[o]);
+  setMsg(missing.length ? 'No balances yet for ' + missing.join(', ') + ' (that PC needs the 2.8x extension; it appears within a few minutes after it updates).' : '', !!missing.length);
+  render();
+}
+
+/* ---------- numbers (SC only; copy of the extension page logic) ---------- */
+function seriesFor(p) {
+  const pts = (p.h || []).filter((x) => x[2] !== null && x[2] !== undefined).map((x) => [x[0], x[2]]);
+  if (p.la && p.ls !== null && p.ls !== undefined && !pts.some((x) => x[0] === p.la)) pts.push([p.la, p.ls]);
+  pts.sort((a, b) => a[0] - b[0]);
+  return pts;
+}
+function closeAt(pts, t) { let v = null; for (const x of pts) { if (x[0] < t) v = x; else break; } return v; }
+function computeRow(p) {
+  const pts = seriesFor(p), now = Date.now(), ws = dayStart(0), we = dayStart(7), rds = p.rd || [];
+  const res = { base: null, approx: false, days: [], sum: null, total: null, totalAt: null, active: false, rdSum: 0 };
+  const last = pts.length ? pts[pts.length - 1] : null;
+  if (last) { res.total = last[1]; res.totalAt = last[0]; }
+  const inWeek = pts.filter((x) => x[0] >= ws && x[0] < we);
+  res.active = inWeek.length > 0;
+  const b = closeAt(pts, ws); let prevT = ws;
+  if (b) { res.base = b[1]; prevT = b[0]; } else if (inWeek.length) { res.base = inWeek[0][1]; res.approx = true; prevT = inWeek[0][0]; }
+  const rdIn = (a, z) => rds.filter((x) => x[0] >= a && x[0] < z).reduce((s, x) => s + x[1], 0);
+  let prev = res.base;
+  for (let i = 0; i < 7; i++) {
+    const s = dayStart(i), e = dayStart(i + 1);
+    if (s > now) { res.days.push({ future: true }); continue; }
+    const has = pts.some((x) => x[0] >= s && x[0] < e), end = closeAt(pts, e);
+    if (!has || end === null || prev === null) { res.days.push({ none: true }); continue; }
+    const rd = rdIn(prevT, end[0]), gn = end[1] - prev + rd; prev = end[1]; prevT = end[0]; res.rdSum += rd;
+    res.days.push({ gain: gn, rd });
+  }
+  if (res.base !== null && inWeek.length) res.sum = closeAt(pts, we)[1] - res.base + res.rdSum;
+  return res;
+}
+const R2 = (n) => Math.round(n * 100) / 100;
+const fmt = (v) => (v === null || v === undefined) ? '—' : v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function gTxt(g) { const z = R2(g) === 0; return z ? '0' : (g > 0 ? '+' : '−') + Math.abs(g).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+const gCls = (g) => R2(g) === 0 ? 'zero' : g > 0 ? 'pos' : 'neg';
+function gainCell(g, extra, rd) {
+  if (g === null || g === undefined) return '<td class="nodata' + (extra || '') + '">·</td>';
+  return '<td class="' + gCls(g) + (extra || '') + (rd ? ' adj' : '') + '" title="' + esc(rd ? 'balance change + $' + fmt(rd) + ' redeemed added back' : '') + '">' + gTxt(g) + (rd ? '<sup>$</sup>' : '') + '</td>';
+}
+function ago(ms) { if (!ms) return ''; const m = Math.max(0, Math.round((Date.now() - ms) / 60000)); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago'; }
+
+/* ---------- rows ---------- */
+function rowsFor(owner) {
+  const q = $('filter').value.trim().toLowerCase(), moved = $('onlyMoved').checked, rows = [];
+  const d = data[owner]; if (!d) return rows;
+  for (const id of Object.keys(d.profiles || {})) {
+    const p = d.profiles[id];
+    if (q && String(p.n).toLowerCase().indexOf(q) === -1) continue;
+    const c = computeRow(p);
+    if (moved && !c.active) continue;
+    if (c.total === null && !p.can) continue;
+    rows.push({ o: owner, id, p, c });
+  }
+  rows.sort((a, b) => String(a.p.n).toLowerCase().localeCompare(String(b.p.n).toLowerCase()));
+  return rows;
+}
+function sumRows(rows) {
+  const s = { n: rows.length, base: 0, sum: 0, total: 0, days: [0, 0, 0, 0, 0, 0, 0], dseen: [0, 0, 0, 0, 0, 0, 0].map(() => false), any: false };
+  for (const r of rows) {
+    const c = r.c; if (c.base !== null) s.base += c.base;
+    c.days.forEach((d, i) => { if (!d.future && !d.none) { s.days[i] += d.gain; s.dseen[i] = true; } });
+    if (c.sum !== null) { s.sum += c.sum; s.any = true; }
+    if (c.total !== null) s.total += c.total;
+  }
+  return s;
+}
+function sumCells(s, ti) {
+  let h = '<td class="base">' + fmt(s.base) + '</td>';
+  for (let i = 0; i < 7; i++) { const ex = i === ti ? ' today' : ''; h += (ti >= 0 && i > ti) ? '<td class="' + ex + '"></td>' : s.dseen[i] ? gainCell(s.days[i], ex) : '<td class="nodata' + ex + '">·</td>'; }
+  return h + (s.any ? gainCell(s.sum, ' sum') : '<td class="nodata">·</td>') + '<td><b>' + fmt(s.total) + '</b></td>';
+}
+function headCells(ti) {
+  let h = '<th>Sun start</th>';
+  for (let i = 0; i < 7; i++) h += '<th class="' + (i === ti ? 'today' : '') + '">' + DAYS[i] + '</th>';
+  return h + '<th>Week Σ</th><th>Total now</th>';
+}
+const narrow = () => matchMedia('(max-width: 700px)').matches;
+
+function render() {
+  if (!acct) return;
+  const f = (d) => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  $('weekLabel').textContent = f(weekStart) + ' – ' + f(new Date(dayStart(6)));
+  const isThis = dayStart(0) === sundayOf(new Date()).getTime();
+  $('next').disabled = isThis;
+  $('ver').textContent = 'page ' + PAGE_VERSION;
+  const have = OWNERS.filter((o) => data[o]);
+  if (!OWNERS.includes(sel) || !data[sel]) sel = have[0] || '';
+  $('get').textContent = '⟳ Get balances' + (sel ? ' (' + sel + ')' : '');
+  const ti = (() => { const t = Date.now(); for (let i = 0; i < 7; i++) if (t >= dayStart(i) && t < dayStart(i + 1)) return i; return -1; })();
+  let t = '<div class="wrap"><table><thead><tr><th class="l">Owner</th><th>Sites</th>' + headCells(ti) + '</tr></thead><tbody>';
+  const all = [];
+  for (const o of OWNERS) {
+    const rows = rowsFor(o); all.push(...rows);
+    t += '<tr class="orow' + (o === sel ? ' sel' : '') + '" data-owner="' + o + '"><td class="l"><b>' + o + '</b>' + (data[o] ? '' : ' <span class="muted">(no data)</span>') + '</td><td>' + rows.length + '</td>' + sumCells(sumRows(rows), ti) + '</tr>';
+  }
+  t += '</tbody><tfoot><tr><td class="l">All owners</td><td>' + all.length + '</td>' + sumCells(sumRows(all), ti) + '</tr></tfoot></table></div>';
+  $('owners').innerHTML = t;
+  const rows = rowsFor(sel);
+  $('ownerTitle').textContent = sel ? sel + ' — ' + rows.length + ' sites' : '';
+  if (!rows.length) { $('grid').innerHTML = '<div class="empty">No sites to show for this owner / filter / week.</div>'; return; }
+  const btns = (r) => { const busy = sent[r.o + r.id] && Date.now() - sent[r.o + r.id] < 180000 || r.p.q || r.p.r; return (r.p.can ? '<button class="rd" data-act="read" data-o="' + r.o + '" data-id="' + esc(r.id) + '" ' + (busy ? 'disabled' : '') + ' title="Read this balance now">' + (busy ? '⏳' : '↻') + '</button> ' : '') + '<button class="rd dol" data-act="rdm" data-o="' + r.o + '" data-id="' + esc(r.id) + '" title="Log a redemption (cash-out)">$</button>'; };
+  const link = (p) => /^https?:\/\//i.test(p.u) ? '<a class="site" href="' + esc(p.u) + '" target="_blank" rel="noopener">' + esc(p.n) + ' ↗</a>' : esc(p.n);
+  const totHtml = (c, p) => '<b>' + fmt(c.total) + '</b>' + (c.totalAt ? '<div class="muted ' + (Date.now() - c.totalAt > 36 * 3600000 ? 'stale' : '') + '" style="font-size:10px">' + esc(ago(c.totalAt)) + '</div>' : '') + (p.le ? '<div class="err" style="font-size:10px">read failed</div>' : '');
+  let h = '';
+  if (narrow()) {
+    for (const r of rows) {
+      const { p, c } = r;
+      h += '<div class="card' + (p.en ? '' : ' off') + '"><div class="ct"><span>' + link(p) + '</span><span class="tot">' + totHtml(c, p) + '</span></div>';
+      h += '<div class="muted">Sun start ' + (c.base === null ? '—' : fmt(c.base) + (c.approx ? ' ~' : '')) + ' · week <span class="' + (c.sum === null ? 'nodata' : gCls(c.sum)) + '"><b>' + (c.sum === null ? '·' : gTxt(c.sum)) + '</b></span></div><div class="days">';
+      c.days.forEach((d, i) => { h += '<div class="' + (i === ti ? 'today' : '') + '"><small>' + DAYS[i] + '</small>' + (d.future ? '' : d.none ? '<span class="nodata">·</span>' : '<span class="' + gCls(d.gain) + '">' + gTxt(d.gain) + (d.rd ? '<sup>$</sup>' : '') + '</span>') + '</div>'; });
+      h += '</div><div class="act">' + btns(r) + '</div></div>';
+    }
+  } else {
+    h = '<div class="wrap"><table><thead><tr><th class="l">Site</th>' + headCells(ti) + '<th class="l"></th></tr></thead><tbody>';
+    for (const r of rows) {
+      const { p, c } = r;
+      h += '<tr' + (p.en ? '' : ' style="opacity:.55"') + '><td class="l">' + link(p) + '</td><td class="base">' + (c.base === null ? '<span class="nodata">—</span>' : fmt(c.base) + (c.approx ? ' ~' : '')) + '</td>';
+      c.days.forEach((d, i) => { const ex = i === ti ? ' today' : ''; h += d.future ? '<td class="' + ex + '"></td>' : d.none ? '<td class="nodata' + ex + '">·</td>' : gainCell(d.gain, ex, d.rd); });
+      h += gainCell(c.sum, ' sum', c.rdSum) + '<td>' + totHtml(c, p) + '</td><td class="l">' + btns(r) + '</td></tr>';
+    }
+    h += '</tbody><tfoot><tr><td class="l">Total (' + rows.length + ')</td>' + sumCells(sumRows(rows), ti) + '<td></td></tr></tfoot></table></div>';
+  }
+  $('grid').innerHTML = h;
+}
+
+/* ---------- commands (same files the Overview's ↻ writes) ---------- */
+async function queueCmd(o, id, p, action, extra) {
+  const stamp = new Date().toISOString();
+  const body = Object.assign({ id: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2)), action, profileId: id, profileName: p.n, requestedAt: stamp, requestedFrom: 'Balances page' }, extra || {});
+  const fn = 'run-' + stamp.replace(/[:.]/g, '-') + '-' + logSafe(p.n) + '~' + action + '.json';
+  await g('/me/drive/root:' + enc(ROOT + '/Profiles/' + o + '/commands/' + fn) + ':/content?@microsoft.graph.conflictBehavior=fail', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body, null, 2) });
+}
+$('get').onclick = async () => {
+  const rows = rowsFor(sel).filter((r) => r.p.can && !r.p.q && !r.p.r && !(sent[r.o + r.id] && Date.now() - sent[r.o + r.id] < 180000));
+  if (!rows.length) { setMsg('Nothing to read for this owner / filter (no readable sites, or all are already waiting).', true); return; }
+  const take = rows.slice(0, GET_CAP);
+  if (!confirm('Read ' + take.length + (rows.length > take.length ? ' of ' + rows.length : '') + ' balances on ' + sel + "'s PC? About " + Math.ceil(take.length * 0.6) + ' min; each site opens in its own window one after another and closes itself.' + (rows.length > take.length ? ' (Max ' + GET_CAP + ' per press - press again after.)' : ''))) return;
+  $('get').disabled = true;
+  let done = 0, fail = 0; const q = take.slice();
+  async function worker() { while (q.length) { const r = q.shift(); try { await queueCmd(r.o, r.id, r.p, 'readBalance'); sent[r.o + r.id] = Date.now(); done++; } catch (e) { fail++; } } }
+  await Promise.all([worker(), worker(), worker()]);
+  $('get').disabled = false;
+  setMsg('Queued ' + done + ' balance reads' + (fail ? ' (' + fail + ' failed to send)' : '') + '. The PC picks them up within about a minute; numbers appear here as they finish.', !!fail);
+  render();
+};
+async function addRedemption(o, id, p) {
+  const known = (p.rd || []).map((x) => '$' + x[1] + ' on ' + new Date(x[0]).toLocaleDateString()).join(', ');
+  const a = prompt('Redeemed from ' + p.n + ' (' + o + ') - amount in $:' + (known ? '\n\nAlready logged: ' + known + '\n(if it is in that list, cancel - it is already counted)' : ''));
+  if (a === null) return;
+  const amt = Number(String(a).replace(/[$,\s]/g, ''));
+  if (!isFinite(amt) || amt <= 0) { setMsg('Enter an amount like 500 or 49.99.', true); return; }
+  const dtx = prompt('Date it was requested (MM/DD/YYYY). Leave blank for today:', '');
+  if (dtx === null) return;
+  let at = Date.now();
+  if (dtx.trim()) { const m = dtx.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); if (!m) { setMsg('Date must look like 11/05/2026.', true); return; } at = Math.min(Date.now() - 1000, new Date(+m[3], +m[1] - 1, +m[2], 12, 0, 0).getTime()); }
+  await queueCmd(o, id, p, 'addRedemption', { amount: amt, at });
+  setMsg('Redemption of $' + amt + ' sent to ' + o + "'s Chrome for " + p.n + '. It shows here within a few minutes.');
+}
+document.addEventListener('click', async (e) => {
+  const tr = e.target.closest('tr.orow'); if (tr) { sel = tr.dataset.owner; LS.set('co.balOwner', sel); render(); return; }
+  const b = e.target.closest('button[data-act]'); if (!b) return;
+  const o = b.dataset.o, id = b.dataset.id, p = data[o] && data[o].profiles[id]; if (!p) return;
+  try {
+    if (b.dataset.act === 'read') { b.disabled = true; await queueCmd(o, id, p, 'readBalance'); sent[o + id] = Date.now(); toast('Queued: ' + p.n + ' on ' + o); render(); }
+    else await addRedemption(o, id, p);
+  } catch (err) { setMsg('Could not send: ' + err.message, true); }
+});
+$('prev').onclick = () => { weekStart = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() - 7); render(); };
+$('next').onclick = () => { weekStart = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + 7); render(); };
+$('thisWeek').onclick = () => { weekStart = sundayOf(new Date()); render(); };
+$('refresh').onclick = () => loadAll();
+['filter', 'onlyMoved'].forEach((i) => $(i).addEventListener('input', render));
+matchMedia('(max-width: 700px)').addEventListener('change', render);
+
+(async function init() {
+  if (!window.msal) { showSignIn('The Microsoft sign-in library did not load. Check your connection and reload.'); return; }
+  const cid = LS.get('co.clientId', '1ee77fca-2582-4c3d-a13a-84f3ce009772');
+  pca = new msal.PublicClientApplication({ auth: { clientId: cid, authority: 'https://login.microsoftonline.com/consumers', redirectUri: location.origin + location.pathname.replace(/[^/]*$/, '') }, cache: { cacheLocation: 'localStorage' } });
+  if (pca.initialize) await pca.initialize();
+  acct = pca.getActiveAccount() || pca.getAllAccounts()[0] || null;
+  if (!acct) { showSignIn(); return; }
+  pca.setActiveAccount(acct);
+  await loadAll();
+  setInterval(() => { if (document.visibilityState === 'visible') loadAll(true).catch(() => {}); }, 60000);
+})();
+</script>
+</body>
+</html>
