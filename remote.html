@@ -78,7 +78,7 @@ body.side.emb #embBtns{display:flex;flex-direction:column;gap:6px;margin-top:10p
   <input id="url" disabled placeholder="Address or search" autocapitalize="off" autocomplete="off" spellcheck="false">
   <button id="bGo" disabled>Go</button>
   <select id="tabsel" disabled style="max-width:150px"><option>Tabs</option></select>
-  <button id="bNew" disabled>+ Tab</button><button id="bClose" disabled>&#10005; Tab</button>
+  <button id="bNew" disabled>+ Tab</button><button id="bFav" disabled>&#9733; Favorites</button><button id="bClose" disabled>&#10005; Tab</button>
   <button id="bPaste" disabled>Paste</button>
   <button id="bCopy" disabled title="Copy the text on the host PC to this device's clipboard">Copy from host</button>
   <button id="bMode" class="tog" disabled>Touch: Scroll</button>
@@ -319,7 +319,7 @@ let barsTouched = false;
 const coarse = matchMedia('(pointer:coarse)').matches;
 function setBars(hide) { document.body.classList.toggle('hidebars', hide); setTimeout(() => window.dispatchEvent(new Event('resize')), 50); }
 $('#bBars').onclick = () => { barsTouched = true; setBars(!document.body.classList.contains('hidebars')); };
-const CTRL = ['btnDisc', 'bBack', 'bFwd', 'bRel', 'url', 'bGo', 'bNew', 'bClose', 'bPaste', 'bCopy', 'bMode', 'bKb', 'tabsel'];
+const CTRL = ['btnDisc', 'bBack', 'bFwd', 'bRel', 'url', 'bGo', 'bNew', 'bFav', 'bClose', 'bPaste', 'bCopy', 'bMode', 'bKb', 'tabsel'];
 async function inputStatus(tries = 0) {
   const b = $('#bIn'); b.disabled = true; b.classList.remove('on');
   try {
@@ -417,6 +417,36 @@ $('#bNew').onclick = async () => {
   try { selTab = await rpc('newtab', {}); flash('New tab opened. Type an address above and press Go.'); } catch (e) { flash(e.message); }
   setTimeout(pollTabs, 400);
 };
+// ★ Favorites: list comes from the host PC's extension (favorites.json, kept current by OneDrive). Click opens the site in a new tab there.
+(() => {
+  const pop = document.createElement('div');
+  pop.style.cssText = 'display:none;position:fixed;top:48px;left:50%;transform:translateX(-50%);z-index:60;background:#1b1f27;color:#e8ecf2;border:1px solid #444;border-radius:8px;padding:8px;width:min(340px,92vw);max-height:70vh;overflow:auto;box-shadow:0 8px 24px #000a';
+  const q = document.createElement('input'); q.placeholder = 'Filter...'; q.style.cssText = 'width:100%;box-sizing:border-box;margin-bottom:6px';
+  const list = document.createElement('div'); pop.append(q, list); document.body.append(pop);
+  let favs = null;
+  function render() {
+    const f = q.value.trim().toLowerCase(); list.textContent = '';
+    for (const [folder, items] of Object.entries(favs || {})) {
+      const rows = items.filter((x) => !f || x.t.toLowerCase().includes(f) || x.u.toLowerCase().includes(f));
+      if (!rows.length) continue;
+      const h = document.createElement('div'); h.textContent = folder; h.style.cssText = 'font-weight:600;color:#8fb4ff;margin:8px 0 2px'; list.append(h);
+      for (const x of rows) {
+        const b = document.createElement('div'); b.textContent = x.t; b.title = x.u; b.style.cssText = 'padding:6px;cursor:pointer;border-radius:4px';
+        b.onmouseenter = () => b.style.background = '#2c3340'; b.onmouseleave = () => b.style.background = '';
+        b.onclick = async () => { pop.style.display = 'none'; try { selTab = await rpc('newtab', { url: x.u }); } catch (e) { flash(e.message); } setTimeout(pollTabs, 500); };
+        list.append(b);
+      }
+    }
+  }
+  $('#bFav').onclick = async (e) => {
+    e.stopPropagation();
+    if (pop.style.display === 'block') { pop.style.display = 'none'; return; }
+    try { favs = await rpc('favs'); } catch (er) { flash(/bad op|unknown/i.test(er.message) ? 'That PC has not updated its extension yet (wait a minute and try again).' : er.message); return; }
+    q.value = ''; render(); pop.style.display = 'block'; if (!coarse) q.focus();
+  };
+  q.oninput = render;
+  document.addEventListener('click', (e) => { if (!pop.contains(e.target)) pop.style.display = 'none'; });
+})();
 const go = act(() => {
   let u = $('#url').value.trim(); if (!u) return;
   if (!/^[a-z][a-z0-9+.-]*:/i.test(u)) u = /^[^\s]+\.[^\s]+$/.test(u) ? 'https://' + u : 'https://www.google.com/search?q=' + encodeURIComponent(u);
