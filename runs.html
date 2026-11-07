@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Runs and workouts</title>
+<style>
+:root{
+  color-scheme:light;
+  --bg:#f4f5f2; --ink:#17211f; --ink2:#53605c; --ink3:#7b8783; --rule:#d9ded8; --grid:#e6e9e4; --cell:#e9ece7;
+  --c-hr:#e34948; --c-pw:#6250d6; --c-ele:#8a948f;
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a;
+}
+@media (prefers-color-scheme:dark){
+  :root:where(:not([data-theme="light"])){
+    color-scheme:dark;
+    --bg:#101514; --ink:#e8ece9; --ink2:#a9b4af; --ink3:#7f8b86; --rule:#27302d; --grid:#1d2523; --cell:#1c2321;
+    --c-hr:#e66767; --c-pw:#9085e9; --c-ele:#6f7a75;
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#101514; --ink:#e8ece9; --ink2:#a9b4af; --ink3:#7f8b86; --rule:#27302d; --grid:#1d2523; --cell:#1c2321;
+  --c-hr:#e66767; --c-pw:#9085e9; --c-ele:#6f7a75;
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70;
+}
+*{box-sizing:border-box}
+html{background:var(--bg);scroll-padding-top:70px}
+body{margin:0;color:var(--ink);background:var(--bg);font:15px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI Variable Text","Segoe UI",Roboto,"Helvetica Neue",sans-serif;font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
+button,select,input{font:inherit;color:inherit}
+button{cursor:pointer}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--s1);outline-offset:2px;border-radius:4px}
+.wrap{max-width:1120px;margin:0 auto;padding:0 16px}
+#bar{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 90%,transparent);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--rule)}
+#bar .wrap{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding-top:10px;padding-bottom:10px}
+.brand{font-weight:700;font-size:17px;letter-spacing:-.01em;margin-right:auto}
+.brand a{text-decoration:none}
+.ver{color:var(--ink3);font-size:12px;white-space:nowrap}
+.seg{display:inline-flex;border:1px solid var(--rule);border-radius:8px;overflow:hidden}
+.seg button{border:0;background:transparent;padding:5px 11px;font-size:13px;color:var(--ink2)}
+.seg button+button{border-left:1px solid var(--rule)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+.btn{border:1px solid var(--rule);background:transparent;border-radius:8px;padding:5px 12px;font-size:13px;color:var(--ink);text-decoration:none;display:inline-block}
+.btn:hover{border-color:var(--ink3)}
+.btn.solid{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.who{color:var(--ink3);font-size:12.5px}
+section{padding:26px 0 12px;border-top:1px solid var(--rule)}
+section.first{border-top:0;padding-top:20px}
+h1{font-size:clamp(24px,4vw,34px);letter-spacing:-.025em;margin:0 0 6px}
+h2{font-size:20px;letter-spacing:-.015em;font-weight:650;margin:0 0 4px}
+h3{margin:0;font-size:15px;font-weight:600}
+.lede{color:var(--ink2);margin:0 0 16px;max-width:66ch;font-size:14.5px}
+.meta{color:var(--ink3);font-size:13px}
+.note{color:var(--ink3);font-size:13px;padding:18px 0}
+.err{color:var(--c-hr)}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}
+.chip{border:1px solid var(--rule);background:transparent;border-radius:999px;padding:4px 12px;font-size:13px;color:var(--ink2)}
+.chip b{color:var(--ink);font-weight:600;margin-left:4px}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.chip[aria-pressed="true"] b{color:var(--bg)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:16px 22px;margin:6px 0 10px}
+.stat .l{font-size:12.5px;color:var(--ink2)}
+.stat .v{font-size:28px;font-weight:600;letter-spacing:-.03em;line-height:1.15}
+.stat .v small{font-size:13px;font-weight:500;color:var(--ink2);letter-spacing:0;margin-left:3px}
+.stat .d{font-size:12px;color:var(--ink3)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,440px),1fr));gap:26px 34px;margin-top:10px}
+.chead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:2px}
+.chead .sub{color:var(--ink3);font-size:12.5px;margin-right:auto}
+.legend{display:flex;flex-wrap:wrap;gap:2px 14px;font-size:12.5px;color:var(--ink2);margin:2px 0 2px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.plot{position:relative;width:100%}
+.plot svg{display:block;width:100%;height:auto;overflow:visible}
+.plot text{fill:var(--ink3);font-size:11px}
+.plot .tip{position:absolute;top:0;pointer-events:none;background:var(--bg);border:1px solid var(--rule);border-radius:8px;padding:4px 8px;font-size:12px;white-space:nowrap;display:none;transform:translateX(-50%);z-index:3}
+.tablewrap{overflow-x:auto;border:1px solid var(--rule);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{padding:7px 10px;text-align:left;white-space:nowrap;border-bottom:1px solid var(--grid)}
+th{font-size:12px;color:var(--ink2);font-weight:600;background:var(--cell)}
+tr:last-child td{border-bottom:0}
+td.num,th.num{text-align:right}
+tbody tr.row{cursor:pointer}
+tbody tr.row:hover td{background:var(--cell)}
+.badge{display:inline-block;border:1px solid var(--rule);border-radius:999px;padding:0 7px;font-size:11.5px;color:var(--ink2);margin-right:4px}
+.back{margin:0 0 10px;display:inline-block;color:var(--ink2);font-size:13.5px;text-decoration:underline;text-underline-offset:3px}
+.bars{display:grid;gap:6px;margin:8px 0 0}
+.bar-r{display:grid;grid-template-columns:110px 1fr 70px;gap:10px;align-items:center;font-size:12.5px;color:var(--ink2)}
+.bar-r i{display:block;height:12px;border-radius:3px;background:var(--s1)}
+details{margin:12px 0}
+summary{cursor:pointer;color:var(--ink2);font-size:13.5px}
+.empty{padding:40px 0;color:var(--ink2);max-width:60ch}
+.empty h1{font-size:28px}
+.row2{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:0 0 12px}
+@media (max-width:560px){.bar-r{grid-template-columns:80px 1fr 60px}.stat .v{font-size:24px}}
+</style>
+</head>
+<body>
+<header id="bar"><div class="wrap" id="barin"></div></header>
+<main class="wrap" id="app" aria-live="polite"></main>
+<script>
+'use strict';
+/* ---------- 0. helpers ---------- */
+const PAGE_VERSION = '2026-11-07a';                         // bump on every change; shown next to the title
+const $ = (s, r = document) => r.querySelector(s);
+const tryDo = f => { try { return f(); } catch (e) { return null; } };
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+const pad2 = n => String(n).padStart(2, '0');
+const pref = (k, v) => tryDo(() => v === undefined ? localStorage.getItem('healthlog.runs.' + k) : localStorage.setItem('healthlog.runs.' + k, v));
+const KM = 1.609344;
+
+/* ---------- 1. Microsoft sign-in + OneDrive (same Entra app, MSAL and folder as the Health log page) ---------- */
+const CLOUD = location.protocol === 'https:';
+const CLIENT_ID = tryDo(() => localStorage.getItem('co.clientId')) || '1ee77fca-2582-4c3d-a13a-84f3ce009772';
+const SCOPES = ['Files.ReadWrite', 'User.Read'];
+const REDIRECT = location.origin + location.pathname.replace(/\/runs$/, '/runs.html');      // must be registered in Entra (SPA)
+const MSAL_URLS = ['https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js', 'https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js'];
+const HL = 'Documents/health-log';
+const odPath = rel => '/me/drive/root:/' + (HL + '/' + rel).split('/').map(encodeURIComponent).join('/');
+let pca = null, account = null;
+const loadScript = url => new Promise((res, rej) => { const s = document.createElement('script'); s.src = url; s.onload = res; s.onerror = () => rej(new Error('load failed')); document.head.appendChild(s); });
+async function initMsal() {
+  if (!window.msal) for (const u of MSAL_URLS) { try { await loadScript(u); if (window.msal) break; } catch (e) { /* try the next CDN */ } }
+  if (!window.msal) throw new Error('The Microsoft sign-in library did not load. Check your connection and reload.');
+  pca = new window.msal.PublicClientApplication({auth: {clientId: CLIENT_ID, authority: 'https://login.microsoftonline.com/consumers', redirectUri: REDIRECT, navigateToLoginRequestUrl: false}, cache: {cacheLocation: 'localStorage'}});
+  if (typeof pca.initialize === 'function') await pca.initialize();
+  const r = await pca.handleRedirectPromise();
+  account = (r && r.account) || pca.getAllAccounts()[0] || null;
+  if (account) pca.setActiveAccount(account);
+}
+const needSignIn = msg => Object.assign(new Error(msg || 'Microsoft needs you to sign in again.'), {signin: true});
+async function graph(path, opt = {}) {
+  if (!account) throw needSignIn();
+  let t; try { t = (await pca.acquireTokenSilent({scopes: SCOPES, account})).accessToken; } catch (e) { throw needSignIn(); }
+  const r = await fetch('https://graph.microsoft.com/v1.0' + path, {...opt, headers: {Authorization: 'Bearer ' + t, ...(opt.headers || {})}});
+  if (r.status === 401) throw needSignIn();
+  return r;
+}
+async function getJson(rel) { const r = await graph(odPath(rel) + ':/content'); if (r.status === 404) return null; if (!r.ok) throw new Error('OneDrive answered ' + r.status + ' for ' + rel + '.'); return r.json(); }
+
+/* ---------- 2. state + data ---------- */
+const S = {status: 'init', msg: '', idx: null, months: {}, range: pref('range') || '90', type: 'all', where: 'all', unit: pref('unit') === 'km' ? 'km' : 'mi', sel: null, F: null, hr: {}, status2: ''};
+const FOOT = {Running: 1, Walking: 1, Hiking: 1};
+const NAME = {Running: 'Run', Walking: 'Walk', Hiking: 'Hike', Swimming: 'Swim', Cycling: 'Ride', Rowing: 'Row', Elliptical: 'Elliptical'};
+const COLOR = {Running: 'var(--s1)', Walking: 'var(--s3)'};
+const tName = t => NAME[t] || t.replace(/([a-z])([A-Z])/g, '$1 $2');
+const todayStr = () => { const d = new Date(); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); };
+const daysAgo = n => { const d = new Date(); d.setDate(d.getDate() - n); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); };
+const cutoff = () => S.range === 'all' ? '0000' : daysAgo(+S.range);
+
+async function ensureMonths(list) {
+  const need = list.filter(m => !S.months[m] && S.idx.months[m]);
+  for (let i = 0; i < need.length; i += 5) {
+    await Promise.all(need.slice(i, i + 5).map(async m => { const j = await getJson('runs/' + m + '.json'); S.months[m] = (j && j.w) || []; }));
+  }
+}
+const monthsFor = from => Object.keys(S.idx.months).filter(m => m >= from.slice(0, 7)).sort();
+const allW = () => Object.keys(S.months).sort().reverse().flatMap(m => S.months[m].slice().reverse());
+
+/* derived numbers for one workout (cached on the object) */
+function D(w) {
+  if (w._d) return w._d;
+  const foot = !!FOOT[w.t], mi = w.dist || 0, sec = w.dur || 0;
+  const ok = foot && mi >= 0.05 && sec > 0;
+  return w._d = {foot, mi, sec, pace: ok ? sec / mi : 0, date: w.id.slice(0, 10), clock: w.id.slice(11, 16), indoor: w.io === 1, ser: !!w.ser, act: !!(w.act && w.act.length), rt: !!w.rt};
+}
+const U = () => S.unit === 'km' ? KM : 1;                      // miles -> unit: x * U()
+const uLab = () => S.unit;
+const dist = mi => mi * U();
+const fmtD = (mi, p = 2) => (mi * U()).toFixed(p);
+const fmtDur = s => { s = Math.round(s); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return h ? `${h}:${pad2(m)}:${pad2(x)}` : `${m}:${pad2(x)}`; };
+const fmtPace = spm => spm > 0 && isFinite(spm) ? fmtDur(spm / U()) : '–';       // seconds per mile -> m:ss per unit
+const spdU = mph => mph * U();
+const fmtDate = (id, y) => { const d = new Date(+id.slice(0, 4), +id.slice(5, 7) - 1, +id.slice(8, 10)); return d.toLocaleDateString(undefined, {weekday: 'short', month: 'short', day: 'numeric', ...(y ? {year: 'numeric'} : {})}); };
+const fmtClock = id => { const h = +id.slice(11, 13), m = id.slice(14, 16); return `${h % 12 || 12}:${m} ${h < 12 ? 'am' : 'pm'}`; };
+const sum = (a, f) => a.reduce((s, x) => s + f(x), 0);
+
+/* ---------- 3. charts (small, no libraries) ---------- */
+const PLOTS = {}; let plotN = 0;
+function niceTicks(a, b, n) {
+  const span = b - a || 1, raw = span / n, p = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / p, st = (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * p, out = [];
+  for (let v = Math.ceil(a / st) * st; v <= b + st * 1e-9; v += st) out.push(+v.toFixed(10));
+  return out;
+}
+function lineSVG(series, o = {}) {
+  const W = o.w || 760, H = o.h || 170, m = {l: o.ml || 48, r: 12, t: 10, b: 24};
+  const xs = [], ys = [];
+  for (const s of series) for (const p of s.pts) { xs.push(p[0]); ys.push(p[1]); }
+  if (xs.length < 2) return '';
+  let x0 = o.x0 !== undefined ? o.x0 : Math.min(...xs), x1 = o.x1 !== undefined ? o.x1 : Math.max(...xs); if (x1 === x0) x1 = x0 + 1;
+  let y0 = o.y0 !== undefined ? o.y0 : Math.min(...ys), y1 = o.y1 !== undefined ? o.y1 : Math.max(...ys); if (y1 === y0) y1 = y0 + 1;
+  const pad = (y1 - y0) * .08; if (o.y0 === undefined) y0 -= pad; if (o.y1 === undefined) y1 += pad;
+  const iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const sx = x => m.l + (x - x0) / (x1 - x0) * iw, sy = v => o.inv ? m.t + (v - y0) / (y1 - y0) * ih : H - m.b - (v - y0) / (y1 - y0) * ih;
+  const yt = niceTicks(y0, y1, 4), xt = o.xTicks ? o.xTicks(x0, x1) : niceTicks(x0, x1, 6), xf = o.xFmt || (v => v), yf = o.yFmt || (v => v);
+  let g = yt.map(v => `<line x1="${m.l}" x2="${W - m.r}" y1="${sy(v).toFixed(1)}" y2="${sy(v).toFixed(1)}" stroke="var(--grid)"/><text x="${m.l - 6}" y="${(sy(v) + 4).toFixed(1)}" text-anchor="end">${esc(yf(v))}</text>`).join('');
+  g += xt.map(v => `<text x="${sx(v).toFixed(1)}" y="${H - 6}" text-anchor="middle">${esc(xf(v))}</text>`).join('');
+  for (const s of series) {
+    const col = s.color || 'var(--s1)';
+    if (s.kind === 'dots') g += s.pts.map(p => `<circle cx="${sx(p[0]).toFixed(1)}" cy="${sy(p[1]).toFixed(1)}" r="${s.r || 3}" fill="${col}" opacity=".75"/>`).join('');
+    else if (s.kind === 'step') {
+      let d = ''; s.pts.forEach((p, i) => { d += (i ? `H${sx(p[0]).toFixed(1)}V${sy(p[1]).toFixed(1)}` : `M${sx(p[0]).toFixed(1)} ${sy(p[1]).toFixed(1)}`); });
+      g += `<path d="${d}" fill="none" stroke="${col}" stroke-width="2"/>`;
+    } else g += `<path d="${s.pts.map((p, i) => (i ? 'L' : 'M') + sx(p[0]).toFixed(1) + ' ' + sy(p[1]).toFixed(1)).join('')}" fill="none" stroke="${col}" stroke-width="${s.w || 1.8}" stroke-linejoin="round"/>`;
+  }
+  const id = 'p' + (++plotN);
+  PLOTS[id] = {series, x0, x1, m, W, iw, xf, yf};
+  return `<div class="plot" data-plot="${id}"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(o.label || 'chart')}">${g}<line class="cur" x1="0" x2="0" y1="${m.t}" y2="${H - m.b}" stroke="var(--ink3)" stroke-dasharray="3 3" style="display:none"/></svg><div class="tip"></div></div>`;
+}
+function barSVG(items, o = {}) {               // items [{label, v, color}]
+  const W = o.w || 760, H = o.h || 160, m = {l: 40, r: 8, t: 8, b: 22}, n = items.length; if (!n) return '';
+  const mx = Math.max(...items.map(i => i.v), o.min || 0.0001), yt0 = niceTicks(0, mx, 4), stp = yt0.length > 1 ? yt0[1] - yt0[0] : mx, top = Math.ceil(mx / stp - 1e-9) * stp || mx, yt = niceTicks(0, top, 4);
+  const iw = W - m.l - m.r, ih = H - m.t - m.b, bw = iw / n, sy = v => H - m.b - v / top * ih;
+  let g = yt.map(v => `<line x1="${m.l}" x2="${W - m.r}" y1="${sy(v).toFixed(1)}" y2="${sy(v).toFixed(1)}" stroke="var(--grid)"/><text x="${m.l - 6}" y="${(sy(v) + 4).toFixed(1)}" text-anchor="end">${v}</text>`).join('');
+  const every = Math.ceil(n / 8);
+  items.forEach((it, i) => {
+    const x = m.l + i * bw + bw * .12, w = bw * .76, y = sy(it.v);
+    g += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${Math.max(0, H - m.b - y).toFixed(1)}" rx="2" fill="${it.color || 'var(--s1)'}"><title>${esc(it.label)}: ${esc(it.tip || it.v)}</title></rect>`;
+    if (i % every === 0) g += `<text x="${(x + w / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle">${esc(it.label)}</text>`;
+  });
+  return `<div class="plot"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(o.label || 'bar chart')}">${g}</svg></div>`;
+}
+function nearest(pts, x) { let lo = 0, hi = pts.length - 1; while (lo < hi) { const mid = (lo + hi) >> 1; if (pts[mid][0] < x) lo = mid + 1; else hi = mid; } if (lo > 0 && Math.abs(pts[lo - 1][0] - x) < Math.abs(pts[lo][0] - x)) lo--; return pts[lo]; }
+document.addEventListener('pointermove', e => {
+  const host = e.target.closest && e.target.closest('.plot[data-plot]'); document.querySelectorAll('.plot .tip').forEach(t => { if (!host || t.parentNode !== host) { t.style.display = 'none'; const c = t.parentNode.querySelector('.cur'); if (c) c.style.display = 'none'; } });
+  if (!host) return;
+  const P = PLOTS[host.dataset.plot], svg = host.querySelector('svg'), r = svg.getBoundingClientRect(), px = (e.clientX - r.left) / r.width * P.W;
+  if (px < P.m.l || px > P.m.l + P.iw) return;
+  const xv = P.x0 + (px - P.m.l) / P.iw * (P.x1 - P.x0), tip = host.querySelector('.tip'), cur = host.querySelector('.cur');
+  const rows = P.series.filter(s => s.kind !== 'dots' && s.pts.length && s.name).map(s => { const p = nearest(s.pts, xv); return `${esc(s.name)}: <b>${esc((s.yFmt || P.yf)(p[1]))}</b>`; });
+  if (!rows.length) return;
+  tip.innerHTML = `${esc(P.xf(xv))} · ${rows.join(' · ')}`; tip.style.display = 'block'; tip.style.left = Math.min(Math.max((e.clientX - r.left), 60), r.width - 60) + 'px';
+  cur.setAttribute('x1', px); cur.setAttribute('x2', px); cur.style.display = '';
+});
+
+/* ---------- 4. list screen ---------- */
+function filtered() {
+  const c = cutoff();
+  return allW().filter(w => w.id.slice(0, 10) >= c.slice(0, 10) && (S.type === 'all' || w.t === S.type) && (S.where === 'all' || (S.where === 'in') === (w.io === 1)));
+}
+function listHTML() {
+  const c = cutoff(), base = allW().filter(w => w.id.slice(0, 10) >= c.slice(0, 10));
+  const types = {}; for (const w of base) types[w.t] = (types[w.t] || 0) + 1;
+  const tnames = Object.keys(types).sort((a, b) => types[b] - types[a]);
+  const L = filtered(), foot = L.filter(w => D(w).pace > 0), mi = sum(foot, w => D(w).mi), secs = sum(foot, w => D(w).sec);
+  const hrW = L.filter(w => w.hr && w.dur), hrAvg = hrW.length ? sum(hrW, w => w.hr[0] * w.dur) / sum(hrW, w => w.dur) : 0;
+  const longest = foot.reduce((b, w) => !b || D(w).mi > D(b).mi ? w : b, null), fastest = foot.filter(w => D(w).mi >= 1).reduce((b, w) => !b || D(w).pace < D(b).pace ? w : b, null);
+  const chip = (k, v, l, n) => `<button class="chip" data-act="${k}" data-v="${esc(v)}" aria-pressed="${S[k] === v}">${esc(l)}<b>${n}</b></button>`;
+  const hasIn = base.some(w => w.io === 1), hasOut = base.some(w => w.io === 0);
+  let h = `<section class="first"><h1>Runs and workouts</h1><p class="lede">Every workout from your Apple Health exports: distance, pace, heart rate, laps and interval steps, plus pace, power and form samples and GPS routes where the watch recorded them. Built from your latest export by the PC.</p>
+    <div class="chips" role="group" aria-label="Workout type">${chip('type', 'all', 'All', base.length)}${tnames.map(t => chip('type', t, tName(t), types[t])).join('')}</div>
+    ${hasIn && hasOut ? `<div class="chips" role="group" aria-label="Where">${chip('where', 'all', 'Anywhere', base.length)}${chip('where', 'in', 'Indoor', base.filter(w => w.io === 1).length)}${chip('where', 'out', 'Outdoor', base.filter(w => w.io === 0).length)}</div>` : ''}`;
+  if (!L.length) return h + `<p class="note">No workouts match these filters in this range.</p></section>`;
+  h += `<div class="stats">
+    <div class="stat"><div class="l">Workouts</div><div class="v">${L.length}</div></div>
+    <div class="stat"><div class="l">Distance</div><div class="v">${fmtD(mi, 1)}<small>${uLab()}</small></div><div class="d">runs, walks and hikes</div></div>
+    <div class="stat"><div class="l">Time</div><div class="v">${fmtDur(secs)}</div><div class="d">runs, walks and hikes</div></div>
+    <div class="stat"><div class="l">Average pace</div><div class="v">${fmtPace(mi > 0 ? secs / mi : 0)}<small>/${uLab()}</small></div></div>
+    ${hrAvg ? `<div class="stat"><div class="l">Average heart rate</div><div class="v">${Math.round(hrAvg)}<small>bpm</small></div></div>` : ''}
+    ${longest ? `<div class="stat"><div class="l">Longest</div><div class="v">${fmtD(D(longest).mi, 2)}<small>${uLab()}</small></div><div class="d">${esc(fmtDate(longest.id))}</div></div>` : ''}
+    ${fastest ? `<div class="stat"><div class="l">Fastest pace (1+ mi)</div><div class="v">${fmtPace(D(fastest).pace)}<small>/${uLab()}</small></div><div class="d">${esc(fmtDate(fastest.id))}</div></div>` : ''}</div>`;
+  // weekly or monthly distance
+  const by = {}, span = S.range === 'all' || +S.range > 200;
+  for (const w of foot) {
+    const d = D(w).date; let k;
+    if (span) k = d.slice(0, 7); else { const t = new Date(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10)); t.setDate(t.getDate() - (t.getDay() + 6) % 7); k = t.getFullYear() + '-' + pad2(t.getMonth() + 1) + '-' + pad2(t.getDate()); }
+    by[k] = (by[k] || 0) + D(w).mi;
+  }
+  const keys = Object.keys(by).sort(), bars = keys.map(k => ({label: span ? k.slice(2) : k.slice(5), v: +(by[k] * U()).toFixed(1), tip: (by[k] * U()).toFixed(1) + ' ' + uLab()}));
+  h += `<div class="grid2"><div><div class="chead"><h3>${span ? 'Distance per month' : 'Distance per week'}</h3><span class="sub">${uLab()}</span></div>${barSVG(bars, {label: 'Distance per period'})}</div>`;
+  // pace trend
+  const dots = {}; for (const w of foot) { const d = D(w); if (d.mi >= 0.5 && d.pace > 180 && d.pace < 1500) (dots[w.t] = dots[w.t] || []).push([new Date(+d.date.slice(0, 4), +d.date.slice(5, 7) - 1, +d.date.slice(8, 10)).getTime() / 864e5, d.pace / U(), w]); }
+  const ps = []; let legend = '';
+  for (const t of Object.keys(dots)) {
+    const pts = dots[t].sort((a, b) => a[0] - b[0]); ps.push({kind: 'dots', pts: pts.map(p => [p[0], p[1]]), color: COLOR[t] || 'var(--s2)'});
+    const tr = pts.map((p, i) => { const win = pts.slice(Math.max(0, i - 4), i + 1); return [p[0], win.reduce((s, q) => s + q[1], 0) / win.length]; });
+    if (tr.length > 2) ps.push({pts: tr, color: COLOR[t] || 'var(--s2)', name: tName(t) + ' pace (5-workout average)', w: 2});
+    legend += `<span><i style="background:${COLOR[t] || 'var(--s2)'}"></i>${esc(tName(t))}</span>`;
+  }
+  const dayFmt = v => new Date(v * 864e5).toLocaleDateString(undefined, {month: 'short', day: 'numeric', ...(span ? {year: '2-digit'} : {})});
+  h += `<div><div class="chead"><h3>Pace per workout</h3><span class="sub">min per ${uLab()}, faster is higher</span></div><div class="legend">${legend}</div>${ps.length ? lineSVG(ps, {inv: true, yFmt: v => fmtDur(v), xFmt: dayFmt, label: 'Pace per workout', xTicks: (a, b) => niceTicks(a, b, 5)}) : '<p class="note">No workouts with distance in this selection.</p>'}</div></div>`;
+  h += `</section><section><div class="chead"><h2>Workouts</h2><span class="sub">${L.length} shown, newest first. Tap a row for the full detail.</span></div>
+    <div class="tablewrap"><table><thead><tr><th>Date</th><th>Type</th><th class="num">Distance</th><th class="num">Time</th><th class="num">Pace</th><th class="num">Avg HR</th><th class="num">Cal</th><th>Has</th></tr></thead><tbody>
+    ${L.slice(0, 400).map(w => { const d = D(w); const tm = tmFor(w);
+      const swim = w.st && w.st.swim ? (w.st.swim * (S.unit === 'km' ? 1 : 1.09361)).toFixed(0) + (S.unit === 'km' ? ' m' : ' yd') : '';
+      return `<tr class="row" tabindex="0" data-act="open" data-id="${esc(w.id)}"><td>${esc(fmtDate(w.id, true))}<br><span class="meta">${esc(fmtClock(w.id))}${d.indoor ? ' · indoor' : w.io === 0 ? ' · outdoor' : ''}</span></td><td>${esc(tName(w.t))}</td>
+      <td class="num">${d.mi ? fmtD(d.mi) + ' ' + uLab() : swim || '–'}</td><td class="num">${fmtDur(w.dur)}</td><td class="num">${d.pace ? fmtPace(d.pace) : '–'}</td><td class="num">${w.hr ? w.hr[0] : '–'}</td><td class="num">${w.kcal ? Math.round(w.kcal) : '–'}</td>
+      <td>${d.act ? '<span class="badge">intervals</span>' : ''}${d.ser ? '<span class="badge">pace data</span>' : ''}${d.rt ? '<span class="badge">route</span>' : ''}${tm ? '<span class="badge">treadmill log</span>' : ''}</td></tr>`; }).join('')}</tbody></table></div>
+    ${L.length > 400 ? `<p class="note">Showing the newest 400. Narrow the range or type to see older ones.</p>` : ''}</section>`;
+  return h;
+}
+
+/* ---------- 5. detail screen ---------- */
+const evName = {p: 'Pause', r: 'Resume', mp: 'Motion paused', mr: 'Motion resumed', sg: 'Segment', mk: 'Marker', lp: 'Lap'};
+function tmTime(r) { return sum(r.segs || [], s => s.mph > 0 ? s.mi / s.mph * 3600 : 0) * (r.reps || 1); }
+function tmFor(w) {                                      // a treadmill run you logged on the Health page for the same day and about the same length
+  if (!S.F || !FOOT[w.t]) return null; const d = D(w).date; let best = null, bd = 1e9;
+  for (const r of S.F.tmRuns || []) { if (r.d !== d) continue; const diff = Math.abs(tmTime(r) - w.dur); if (diff <= Math.max(360, w.dur * .3) && diff < bd) { best = r; bd = diff; } }
+  return best;
+}
+async function hrMonth(ym) { if (S.hr[ym] !== undefined) return S.hr[ym]; let j = null; try { const r = await graph(odPath('heart/' + ym + '.json') + ':/content'); if (r.ok) j = await r.json(); } catch (e) { if (e.signin) throw e; } return S.hr[ym] = j; }
+async function hrFor(w) {
+  const j = await hrMonth(w.id.slice(0, 7)); const day = j && j.days && j.days[w.id.slice(0, 10)]; if (!day || !day.w) return null;
+  const want = Date.UTC(+w.id.slice(0, 4), +w.id.slice(5, 7) - 1, +w.id.slice(8, 10), +w.id.slice(11, 13), +w.id.slice(14, 16)) / 6e4;
+  let best = null, bd = 3; for (const e of day.w) { const t = Date.UTC(+e.s.slice(0, 4), +e.s.slice(5, 7) - 1, +e.s.slice(8, 10), +e.s.slice(11, 13), +e.s.slice(14, 16)) / 6e4, d = Math.abs(t - want); if (d < bd) { bd = d; best = e; } }
+  if (!best) return null; const pts = []; let t = 0; for (let i = 0; i + 1 < best.p.length; i += 2) { t += best.p[i]; pts.push([t, best.p[i + 1]]); } return pts;
+}
+function series(w, k) { const a = w.ser && w.ser[k]; if (!a) return null; const out = []; let t = 0; for (let i = 0; i + 1 < a.length; i += 2) { t += a[i]; out.push([t, a[i + 1]]); } return out; }
+function smooth(pts, n) { return pts.map((p, i) => { let s = 0, c = 0; for (let j = Math.max(0, i - n); j <= Math.min(pts.length - 1, i + n); j++) { s += pts[j][1]; c++; } return [p[0], s / c]; }); }
+/* a track of [seconds, cumulative miles]: from watch speed samples, else from the GPS route */
+function track(w) {
+  const sp = series(w, 'spd');
+  if (sp && sp.length > 5) {
+    const t = [sp[0][0]], d = [0];
+    for (let i = 1; i < sp.length; i++) { const dt = sp[i][0] - sp[i - 1][0]; t.push(sp[i][0]); d.push(d[i - 1] + (dt > 30 ? 0 : (sp[i][1] + sp[i - 1][1]) / 2 * dt / 3600)); }
+    const tot = d[d.length - 1], k = w.dist && tot > 0 && w.dist / tot > .6 && w.dist / tot < 1.6 ? w.dist / tot : 1;
+    return {t, d: d.map(x => x * k), src: 'the watch’s pace samples'};
+  }
+  if (w.rt && w.rt.p.length > 5) {
+    const p = w.rt.p, tot = p[p.length - 1][3], k = w.dist && tot > 0 && w.dist / tot > .6 && w.dist / tot < 1.6 ? w.dist / tot : 1;
+    return {t: p.map(q => q[4]), d: p.map(q => q[3] * k), src: 'the GPS route'};
+  }
+  return null;
+}
+function timeAt(tr, dd) { const d = tr.d; if (dd <= d[0]) return tr.t[0]; if (dd >= d[d.length - 1]) return tr.t[tr.t.length - 1]; let lo = 0, hi = d.length - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (d[m] <= dd) lo = m; else hi = m; } const f = (dd - d[lo]) / ((d[hi] - d[lo]) || 1); return tr.t[lo] + f * (tr.t[hi] - tr.t[lo]); }
+function splitsHTML(w, hr) {
+  const tr = track(w); if (!tr) return '';
+  const u = 1 / U(), tot = tr.d[tr.d.length - 1], rows = []; let prevD = 0, prevT = tr.t[0];
+  for (let k = 1; prevD < tot - 0.02 * u; k++) {
+    const dd = Math.min(k * u, tot), tt = timeAt(tr, dd), len = dd - prevD, secs = tt - prevT; if (secs <= 0) break;
+    const hs = hr ? hr.filter(p => p[0] >= prevT && p[0] < tt).map(p => p[1]) : [];
+    rows.push({k, len, secs, pace: secs / len, hr: hs.length ? hs.reduce((a, b) => a + b, 0) / hs.length : 0, partial: len < u * .98}); prevD = dd; prevT = tt;
+  }
+  if (!rows.length) return '';
+  const fast = Math.min(...rows.filter(r => !r.partial).map(r => r.pace), 1e9), slow = Math.max(...rows.filter(r => !r.partial).map(r => r.pace), 0);
+  return `<section><div class="chead"><h2>Splits</h2><span class="sub">per ${uLab() === 'km' ? 'kilometre' : 'mile'}, from ${tr.src}${tr.src.startsWith('the watch') ? ' (scaled to the workout distance)' : ''}</span></div>
+    <div class="tablewrap"><table><thead><tr><th>${uLab() === 'km' ? 'Km' : 'Mile'}</th><th class="num">Time</th><th class="num">Pace /${uLab()}</th><th class="num">Avg HR</th><th></th></tr></thead><tbody>
+    ${rows.map(r => `<tr><td>${r.partial ? fmtD(r.len * 1, 2) + ' ' + uLab() : r.k}</td><td class="num">${fmtDur(r.secs)}</td><td class="num">${fmtDur(r.pace / U() * 1)}</td><td class="num">${r.hr ? Math.round(r.hr) : '–'}</td>
+      <td style="width:38%"><div style="height:10px;border-radius:3px;background:var(--s1);width:${r.partial || slow === fast ? 30 : 30 + 70 * (slow - r.pace) / (slow - fast || 1)}%;opacity:${r.partial ? .45 : 1}"></div></td></tr>`).join('')}</tbody></table></div></section>`;
+}
+function stepsHTML(w) {
+  if (!w.act || !w.act.length) return '';
+  const rows = w.act, blk = {};                       // step keys look like block.repeat.step: label by block, and add repeat or step only where a block has more than one
+  for (const a of rows) { const k = (a.k || '').split('.').map(Number); if (k.length === 3) { const b = blk[k[0]] = blk[k[0]] || {r: 0, s: 0}; b.r = Math.max(b.r, k[1] + 1); b.s = Math.max(b.s, k[2] + 1); } }
+  const pace = rows.map(a => a.st && a.st.spd && a.st.spd[0] > 0 ? 3600 / a.st.spd[0] : 0), valid = pace.filter(p => p > 0), fast = Math.min(...valid, 1e9), slow = Math.max(...valid, 0);
+  const f = (a, k, d = 0) => a.st && a.st[k] ? (Array.isArray(a.st[k]) ? a.st[k][0] : a.st[k]).toFixed(d) : '–';
+  return `<section><div class="chead"><h2>Interval steps</h2><span class="sub">the watch’s structured workout: one row per step</span></div>
+    <div class="tablewrap"><table><thead><tr><th>Step</th><th class="num">Start</th><th class="num">Time</th><th class="num">Distance</th><th class="num">Pace /${uLab()}</th><th class="num">Speed ${S.unit === 'km' ? 'km/h' : 'mph'}</th><th class="num">Avg HR</th><th class="num">Max HR</th><th class="num">Power W</th><th class="num">Stride m</th><th class="num">Contact ms</th><th class="num">Osc cm</th><th></th></tr></thead><tbody>
+    ${rows.map((a, i) => { const p = pace[i], kk = (a.k || '').split('.'); const bb = kk.length === 3 ? blk[+kk[0]] : null, label = bb ? `Block ${+kk[0] + 1}${bb.r > 1 ? ` · rep ${+kk[1] + 1}` : ''}${bb.s > 1 ? ` · step ${+kk[2] + 1}` : ''}` : a.k || 'Step ' + (i + 1);
+      return `<tr><td>${esc(label)}</td><td class="num">${fmtDur(a.s)}</td><td class="num">${fmtDur(a.d)}</td><td class="num">${a.st && a.st.dist != null ? fmtD(a.st.dist, 2) : '–'}</td><td class="num">${p ? fmtDur(p / U()) : '–'}</td><td class="num">${a.st && a.st.spd ? spdU(a.st.spd[0]).toFixed(1) : '–'}</td><td class="num">${f(a, 'hr')}</td><td class="num">${a.st && a.st.hr ? a.st.hr[2] : '–'}</td><td class="num">${f(a, 'pw')}</td><td class="num">${f(a, 'sl', 2)}</td><td class="num">${f(a, 'gct')}</td><td class="num">${f(a, 'vo', 1)}</td>
+      <td style="min-width:90px">${p ? `<div style="height:10px;border-radius:3px;background:var(--s2);width:${30 + 70 * (slow - p) / (slow - fast || 1)}%"></div>` : ''}</td></tr>`; }).join('')}</tbody></table></div></section>`;
+}
+function tmHTML(w, r, hr) {
+  if (!r) return ''; let at = 0; const rows = []; for (let rep = 0; rep < (r.reps || 1); rep++) for (const s of r.segs) { const t = s.mph > 0 ? s.mi / s.mph * 3600 : 0; const hs = hr ? hr.filter(p => p[0] >= at && p[0] < at + t).map(p => p[1]) : []; rows.push({s, at, t, hr: hs.length ? Math.round(hs.reduce((a, b) => a + b, 0) / hs.length) : 0, mx: hs.length ? Math.max(...hs) : 0}); at += t; }
+  const mi = sum(r.segs, s => s.mi) * (r.reps || 1);
+  return `<section><div class="chead"><h2>Your treadmill log</h2><span class="sub">${esc(r.name || 'Treadmill workout')} · ${r.reps || 1} × set · logged on the Health page</span></div>
+    <p class="lede">The watch does not record pace on the treadmill, so the segment detail comes from what you logged (it assumes the segments ran back to back from the start). Logged: ${fmtD(mi)} ${uLab()} in ${fmtDur(at)}. Watch: ${w.dist ? fmtD(w.dist) + ' ' + uLab() : '–'} in ${fmtDur(w.dur)}.</p>
+    <div class="tablewrap"><table><thead><tr><th>#</th><th class="num">Starts</th><th class="num">Distance</th><th class="num">Speed ${S.unit === 'km' ? 'km/h' : 'mph'}</th><th class="num">Incline %</th><th class="num">Time</th><th class="num">Avg HR</th><th class="num">Max HR</th></tr></thead><tbody>
+    ${rows.map((x, i) => `<tr><td>${i + 1}</td><td class="num">${fmtDur(x.at)}</td><td class="num">${fmtD(x.s.mi)} ${uLab()}</td><td class="num">${spdU(x.s.mph).toFixed(1)}</td><td class="num">${x.s.inc || 0}</td><td class="num">${fmtDur(x.t)}</td><td class="num">${x.hr || '–'}</td><td class="num">${x.mx || '–'}</td></tr>`).join('')}</tbody></table></div></section>`;
+}
+function routeHTML(w) {
+  if (!w.rt || w.rt.p.length < 3) return '';
+  const p = w.rt.p, la = p.map(q => q[0]), lo = p.map(q => q[1]), cl = Math.cos((Math.min(...la) + Math.max(...la)) / 2 * Math.PI / 180);
+  const x0 = Math.min(...lo), x1 = Math.max(...lo), y0 = Math.min(...la), y1 = Math.max(...la), W = 360, H = 300, m = 14, sc = Math.min((W - 2 * m) / ((x1 - x0) * cl || 1e-9), (H - 2 * m) / ((y1 - y0) || 1e-9));
+  const X = v => m + (v - x0) * cl * sc + ((W - 2 * m) - (x1 - x0) * cl * sc) / 2, Y = v => H - m - (v - y0) * sc - ((H - 2 * m) - (y1 - y0) * sc) / 2;
+  const line = p.map((q, i) => (i ? 'L' : 'M') + X(q[1]).toFixed(1) + ' ' + Y(q[0]).toFixed(1)).join('');
+  const map = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Route map" style="width:100%;max-width:420px;height:auto;border:1px solid var(--rule);border-radius:12px;background:var(--cell)"><path d="${line}" fill="none" stroke="var(--s1)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/><circle cx="${X(p[0][1]).toFixed(1)}" cy="${Y(p[0][0]).toFixed(1)}" r="5" fill="var(--s3)"/><circle cx="${X(p[p.length - 1][1]).toFixed(1)}" cy="${Y(p[p.length - 1][0]).toFixed(1)}" r="5" fill="var(--s2)"/></svg>`;
+  const ele = lineSVG([{pts: p.map(q => [q[3] * U(), q[2] * 3.28084]), color: 'var(--c-ele)', name: 'Elevation', yFmt: v => Math.round(v) + ' ft'}], {h: 150, xFmt: v => (+v.toFixed(1)) + '', yFmt: v => Math.round(v), label: 'Elevation profile'});
+  const gain = w.gain != null ? w.gain : w.rt.gain;
+  return `<section><div class="chead"><h2>Route</h2><span class="sub">green start, orange finish${gain != null ? ' · climb about ' + Math.round(gain) + ' ft' : ''} · no map tiles, just the line</span></div>
+    <div class="grid2"><div>${map}</div><div><div class="chead"><h3>Elevation</h3><span class="sub">feet over ${uLab()}</span></div>${ele}</div></div></section>`;
+}
+function paceRange(pts) {                          // keep the slow cooldown or standing samples from squashing the chart: use the 2nd to 98th percentile of pace
+  const v = pts.map(p => p[1]).sort((a, b) => a - b); if (v.length < 10) return {};
+  return {y0: v[Math.floor(v.length * .02)], y1: v[Math.min(v.length - 1, Math.ceil(v.length * .98))]};
+}
+function chartsHTML(w, hr) {
+  const m = x => x / 60, xf = v => fmtDur(v * 60), common = {xFmt: xf, xTicks: (a, b) => niceTicks(a, b, 6)};
+  const sp = series(w, 'spd'), pw = series(w, 'pw'), sl = series(w, 'sl'), gc = series(w, 'gct'), vo = series(w, 'vo'), tm = S._tm;
+  let out = '';
+  const box = (title, sub, svg) => svg ? `<div><div class="chead"><h3>${esc(title)}</h3><span class="sub">${esc(sub)}</span></div>${svg}</div>` : '';
+  if (sp && sp.length > 5) {
+    const pc = smooth(sp, 4).filter(p => p[1] > 0.5).map(p => [m(p[0]), Math.min(Math.max(3600 / p[1] / U(), 180), 1500)]);
+    out += box('Pace', `min per ${uLab()}, faster is higher (smoothed over about 10 samples)`, lineSVG([{pts: pc.map(p => [p[0], Math.min(Math.max(p[1], paceRange(pc).y0 || 0), paceRange(pc).y1 || 1e9)]), name: 'Pace', yFmt: v => fmtDur(v), color: 'var(--s1)'}], {...common, ...paceRange(pc), inv: true, yFmt: v => fmtDur(v), label: 'Pace over time'}));
+  }
+  if (tm) out += box('Speed from your treadmill log', S.unit === 'km' ? 'km/h' : 'mph', lineSVG([{kind: 'step', pts: tm.map(p => [m(p[0]), spdU(p[1])]), name: 'Speed', yFmt: v => v.toFixed(1), color: 'var(--s2)'}], {...common, yFmt: v => v.toFixed(1), label: 'Treadmill speed'}));
+  if (hr && hr.length > 3) out += box('Heart rate', 'bpm', lineSVG([{pts: hr.map(p => [m(p[0]), p[1]]), name: 'Heart rate', yFmt: v => Math.round(v) + ' bpm', color: 'var(--c-hr)'}], {...common, yFmt: v => Math.round(v), label: 'Heart rate over time'}));
+  if (pw && pw.length > 5) out += box('Running power', 'watts', lineSVG([{pts: smooth(pw, 3).map(p => [m(p[0]), p[1]]), name: 'Power', yFmt: v => Math.round(v) + ' W', color: 'var(--c-pw)'}], {...common, yFmt: v => Math.round(v), label: 'Power over time'}));
+  if (sl && sl.length > 5) out += box('Stride length', 'metres', lineSVG([{pts: sl.map(p => [m(p[0]), p[1]]), name: 'Stride', yFmt: v => v.toFixed(2) + ' m', color: 'var(--s3)'}], {...common, yFmt: v => v.toFixed(2), label: 'Stride length'}));
+  if (gc && gc.length > 5) out += box('Ground contact time', 'milliseconds', lineSVG([{pts: gc.map(p => [m(p[0]), p[1]]), name: 'Contact', yFmt: v => Math.round(v) + ' ms', color: 'var(--s2)'}], {...common, yFmt: v => Math.round(v), label: 'Ground contact'}));
+  if (vo && vo.length > 5) out += box('Vertical oscillation', 'centimetres', lineSVG([{pts: vo.map(p => [m(p[0]), p[1]]), name: 'Oscillation', yFmt: v => v.toFixed(1) + ' cm', color: 'var(--s1)'}], {...common, yFmt: v => v.toFixed(1), label: 'Vertical oscillation'}));
+  if (!sp && w.rt && w.rt.p.length > 8) {            // GPS pace when the watch kept no pace samples
+    const p = w.rt.p, pts = []; for (let i = 4; i < p.length; i += 1) { const dd = p[i][3] - p[i - 4][3], dt = p[i][4] - p[i - 4][4]; if (dt > 0 && dd > 0) pts.push([m(p[i][4]), Math.min(Math.max(dt / dd / U(), 180), 1500)]); }
+    if (pts.length > 5) out += box('Pace from GPS', `min per ${uLab()}, faster is higher (rough, 250-point route)`, lineSVG([{pts: pts.map(q => [q[0], Math.min(Math.max(q[1], paceRange(pts).y0 || 0), paceRange(pts).y1 || 1e9)]), name: 'Pace', yFmt: v => fmtDur(v), color: 'var(--s1)'}], {...common, ...paceRange(pts), inv: true, yFmt: v => fmtDur(v), label: 'GPS pace'}));
+  }
+  return out ? `<section><div class="chead"><h2>Over time</h2><span class="sub">hover or touch a chart to read values</span></div><div class="grid2">${out}</div></section>` : `<section><p class="note">The watch kept no pace, power or heart-rate samples for this workout in the files on your PC.</p></section>`;
+}
+function eventsHTML(w) {
+  if (!w.ev || !w.ev.length) return '';
+  const cnt = {}; for (const e of w.ev) cnt[e[0]] = (cnt[e[0]] || 0) + 1;
+  const sm = Object.keys(cnt).map(k => `${cnt[k]} ${evName[k] || k}`.toLowerCase()).join(', ');
+  return `<section><details><summary>Watch events: ${esc(sm)}</summary><div class="tablewrap" style="margin-top:8px"><table><thead><tr><th>Event</th><th class="num">At</th><th class="num">Length</th></tr></thead><tbody>${w.ev.slice(0, 300).map(e => `<tr><td>${esc(evName[e[0]] || e[0])}</td><td class="num">${fmtDur(Math.max(0, e[1]))}</td><td class="num">${e[2] ? fmtDur(e[2]) : ''}</td></tr>`).join('')}</tbody></table></div></details></section>`;
+}
+async function detailHTML() {
+  let w = null; for (const m in S.months) { w = S.months[m].find(x => x.id === S.sel); if (w) break; }
+  if (!w) return `<section class="first"><a class="back" href="#" data-act="back">← All workouts</a><p class="note">That workout is not in the loaded files.</p></section>`;
+  const d = D(w), hr = await hrFor(w).catch(() => null), tmRun = tmFor(w);
+  S._tm = null; if (tmRun) { let at = 0; const pts = []; for (let rep = 0; rep < (tmRun.reps || 1); rep++) for (const s of tmRun.segs) { const t = s.mph > 0 ? s.mi / s.mph * 3600 : 0; pts.push([at, s.mph]); at += t; } pts.push([at, tmRun.segs[tmRun.segs.length - 1].mph]); S._tm = pts; }
+  const swim = w.st && w.st.swim ? w.st.swim : 0, st = w.st || {};
+  const stat = (l, v, s, dd) => `<div class="stat"><div class="l">${l}</div><div class="v">${v}${s ? `<small>${s}</small>` : ''}</div>${dd ? `<div class="d">${dd}</div>` : ''}</div>`;
+  let h = `<section class="first"><a class="back" href="#" data-act="back">← All workouts</a><h1>${esc(tName(w.t))} · ${esc(fmtDate(w.id, true))}</h1><p class="meta">${esc(fmtClock(w.id))}${d.indoor ? ' · indoor' : w.io === 0 ? ' · outdoor' : ''}${w.temp != null ? ` · ${Math.round(w.temp)}°F${w.hum != null ? `, ${w.hum}% humidity` : ''}` : ''}${w.src ? ' · ' + esc(w.src.replace(/ /g, ' ')) : ''}</p>
+    <div class="stats">${d.mi ? stat('Distance', fmtD(d.mi), uLab()) : swim ? stat('Distance', (swim * (S.unit === 'km' ? 1 : 1.09361)).toFixed(0), S.unit === 'km' ? 'm' : 'yd') : ''}
+      ${stat('Time', fmtDur(w.dur))}${d.pace ? stat('Average pace', fmtPace(d.pace), '/' + uLab(), `${spdU(3600 / d.pace).toFixed(1)} ${S.unit === 'km' ? 'km/h' : 'mph'}`) : ''}
+      ${w.hr ? stat('Heart rate', w.hr[0], 'bpm', `${w.hr[1]} to ${w.hr[2]}`) : ''}${w.kcal ? stat('Active Cal', Math.round(w.kcal), '', w.basal ? `+ ${Math.round(w.basal)} resting` : '') : ''}${w.mets ? stat('Effort', w.mets, 'METs') : ''}
+      ${st.pw ? stat('Power', st.pw[0], 'W', `${st.pw[1]} to ${st.pw[2]}`) : ''}${st.sl ? stat('Stride', st.sl[0].toFixed(2), 'm') : ''}${st.gct ? stat('Ground contact', st.gct[0], 'ms') : ''}${st.vo ? stat('Oscillation', st.vo[0].toFixed(1), 'cm') : ''}${st.steps ? stat('Steps', Math.round(st.steps).toLocaleString()) : ''}${w.gain ? stat('Climb', w.gain, 'ft') : ''}${w.lapLen && w.ev ? stat('Laps', w.ev.filter(e => e[0] === 'lp').length, '', `${w.lapLen} m pool`) : ''}</div></section>`;
+  h += chartsHTML(w, hr) + splitsHTML(w, hr) + stepsHTML(w) + tmHTML(w, tmRun, hr) + routeHTML(w) + eventsHTML(w);
+  return h;
+}
+
+/* ---------- 6. shell ---------- */
+function barHTML() {
+  const rb = (v, l) => `<button data-act="range" data-v="${v}" aria-pressed="${S.range === v}">${l}</button>`;
+  const ready = S.status === 'ready';
+  $('#barin').innerHTML = `<span class="brand"><a href="health.html" title="Back to the Health log">Health log</a> / Runs</span><span class="ver" title="Page version">page ${PAGE_VERSION}</span>
+    ${ready && !S.sel ? `<span class="seg" role="group" aria-label="Date range">${rb('30', '30 days')}${rb('90', '90 days')}${rb('365', '1 year')}${rb('all', 'All')}</span>` : ''}
+    ${ready ? `<span class="seg" role="group" aria-label="Distance unit"><button data-act="unit" data-v="mi" aria-pressed="${S.unit === 'mi'}">mi</button><button data-act="unit" data-v="km" aria-pressed="${S.unit === 'km'}">km</button></span>` : ''}
+    <button class="btn" data-act="theme" aria-label="Switch light and dark">Theme</button>
+    ${CLOUD && account ? `<button class="btn" data-act="refresh">Refresh</button>` : ''}
+    ${CLOUD && !account && S.status !== 'init' && S.status !== 'loading' ? `<button class="btn solid" data-act="signin">Sign in with Microsoft</button>` : ''}
+    ${CLOUD && account ? `<span class="who" title="${esc(account.username || '')}">${esc(account.name || account.username || '')}</span><button class="btn" data-act="signout">Sign out</button>` : ''}`;
+}
+let renderSeq = 0;
+async function render() {
+  const my = ++renderSeq; barHTML(); const app = $('#app');
+  if (!CLOUD) { app.innerHTML = `<div class="empty"><h1>Open this page online</h1><p>It reads your workouts from OneDrive behind your Microsoft sign-in, so it only works from its web address, <b>sandibalz.github.io/dashboard/runs.html</b>.</p></div>`; return; }
+  switch (S.status) {
+    case 'init': case 'loading': app.innerHTML = `<div class="empty"><h1>Runs and workouts</h1><p>${S.status === 'init' ? 'Starting…' : esc(S.status2 || 'Loading your workouts from OneDrive…')}</p></div>`; return;
+    case 'signedout': app.innerHTML = `<div class="empty"><h1>Runs and workouts</h1><p>${esc(S.msg || 'Sign in with the same Microsoft account as the Health log to see your workouts.')}</p><button class="btn solid" data-act="signin">Sign in with Microsoft</button></div>`; return;
+    case 'nofile': app.innerHTML = `<div class="empty"><h1>No workout files yet</h1><p>Your PC builds them from the Health export. Send an export from the Health log page, wait about two minutes, then press Refresh. If it still shows nothing, the PC step has not been installed yet.</p></div>`; return;
+    case 'error': app.innerHTML = `<div class="empty"><h1>Could not load</h1><p class="err">${esc(S.msg)}</p><button class="btn" data-act="refresh">Try again</button></div>`; return;
+  }
+  const html = S.sel ? await detailHTML() : listHTML(); if (my !== renderSeq) return;
+  app.innerHTML = html;
+}
+async function load() {
+  S.status = 'loading'; S.status2 = 'Loading your workouts from OneDrive…'; render();
+  try {
+    S.idx = await getJson('runs/index.json'); if (!S.idx) { S.status = 'nofile'; render(); return; }
+    S.months = {}; await ensureMonths(monthsFor(cutoff()));
+    if (S.sel) await ensureMonths([S.sel.slice(0, 7)]);
+    S.status = 'ready'; render();
+    try { const f = await getJson('food-log.json'); if (f) { S.F = f; render(); } } catch (e) { if (e.signin) throw e; }         // optional: your treadmill log, to line it up with the watch workout
+  } catch (e) {
+    if (e.signin) { account = null; S.status = 'signedout'; S.msg = e.message; } else { S.status = 'error'; S.msg = e.message; }
+    render();
+  }
+}
+async function setRange(v) { S.range = v; pref('range', v); if (S.idx) { try { await ensureMonths(monthsFor(cutoff())); } catch (e) { S.msg = e.message; } } render(); }
+function route() {
+  const m = /^#w=(.+)$/.exec(location.hash); const id = m ? decodeURIComponent(m[1]) : null;
+  if (id === S.sel) return; S.sel = id;
+  if (id && S.idx && !S.months[id.slice(0, 7)]) ensureMonths([id.slice(0, 7)]).then(render).catch(() => render()); else render();
+  window.scrollTo(0, 0);
+}
+document.addEventListener('click', async e => {
+  const t = e.target.closest('[data-act]'); if (!t) return; const a = t.dataset.act, v = t.dataset.v;
+  switch (a) {
+    case 'range': e.preventDefault(); setRange(v); break;
+    case 'unit': S.unit = v; pref('unit', v); render(); break;
+    case 'type': S.type = v; render(); break;
+    case 'where': S.where = v; render(); break;
+    case 'open': location.hash = '#w=' + encodeURIComponent(t.dataset.id); break;
+    case 'back': e.preventDefault(); if (location.hash) location.hash = ''; else { S.sel = null; render(); } break;
+    case 'refresh': S.months = {}; S.hr = {}; load(); break;
+    case 'signin': try { await pca.loginRedirect({scopes: SCOPES, redirectUri: REDIRECT}); } catch (er) { S.msg = 'Sign-in could not start: ' + (er.message || er); S.status = 'signedout'; render(); } break;
+    case 'signout': { const acc = account; account = null; S.months = {}; S.idx = null; S.F = null; S.hr = {}; S.status = 'signedout'; S.msg = ''; render(); try { await pca.logoutRedirect({account: acc, postLogoutRedirectUri: REDIRECT}); } catch (er) { /* already out */ } break; }
+    case 'theme': { const dark = matchMedia('(prefers-color-scheme: dark)').matches, cur = document.documentElement.dataset.theme || (dark ? 'dark' : 'light'), nx = cur === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = nx; pref('theme', nx); break; }
+  }
+});
+document.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('tr.row')) { e.preventDefault(); e.target.click(); } });
+window.addEventListener('hashchange', route);
+(async function start() {
+  const th = pref('theme'); if (th === 'dark' || th === 'light') document.documentElement.dataset.theme = th;
+  const m = /^#w=(.+)$/.exec(location.hash); if (m) S.sel = decodeURIComponent(m[1]);
+  render(); if (!CLOUD) return;
+  try { await initMsal(); } catch (e) { S.status = 'error'; S.msg = e.message; render(); return; }
+  if (!account) { S.status = 'signedout'; render(); return; }
+  load();
+})();
+</script>
+</body>
+</html>
