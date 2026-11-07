@@ -549,7 +549,7 @@ async function loadAny(file, onProgress) {
    Opened as a file on your computer: the summary is kept in this browser.
    Served over https (GitHub Pages): nothing is kept in the browser. The summary lives in your
    OneDrive behind the Microsoft sign-in (section 4b), the same way the Collector Overview page works. */
-const PAGE_VERSION = '2026-11-06b';                       // bump on every change, same habit as the Overview page; shown next to the title
+const PAGE_VERSION = '2026-11-06d';                       // bump on every change, same habit as the Overview page; shown next to the title
 const CLOUD = location.protocol === 'https:';
 const KEY = 'healthlog.summary.v1';
 const Store = {
@@ -1570,7 +1570,7 @@ function logFav(f, q) {                                       // tapping a favor
   }
   foodPaintDay(); foodPaintFavs(); foodDirty();
 }
-const RCP_PROMPT = n => `${n > 1 ? 'These are ' + n + ' screenshots, in order, of ONE recipe. They are consecutive screens of the same page, so the end of one screenshot may repeat the start of the next: write each repeated part only once. ' : 'This is a screenshot of a recipe. '}Transcribe the recipe as plain text, word for word as written. Do not summarize, add, reorder or fix anything. Format: "## Ingredients" then one "- " line per ingredient; "## Method" then numbered steps "1. ", "2. " (keep the step titles as written); any other section such as macros or notes as "## Heading" with "- " lines or a short paragraph. Keep all numbers and units exactly. Leave out emoji, source badges (like "Facebook" or a person's name next to a step), the phone status bar, the time and battery, search boxes, buttons and any other app screen elements. If part of the text is unreadable write [unreadable]. Reply with ONE JSON object and nothing else: {"recipe": "<the text, with \\n for line breaks>"}.`;
+const RCP_PROMPT = n => `${n > 1 ? 'These are ' + n + ' screenshots, in order, of ONE recipe. They are consecutive screens of the same page, so the end of one screenshot may repeat the start of the next: write each repeated part only once. ' : 'This is a screenshot of a recipe. '}Transcribe the recipe as plain text, word for word as written. Do not summarize, add, reorder or fix anything. Format: "## Ingredients" then one "- " line per ingredient; "## Method" then numbered steps "1. ", "2. " (keep the step titles as written); any other section such as macros or notes as "## Heading" with "- " lines or a short paragraph. Keep all numbers and units exactly. Leave out emoji, source badges (like "Facebook" or a person's name next to a step), the phone status bar, the time and battery, search boxes, buttons and any other app screen elements. If part of the text is unreadable write [unreadable]. If the page states calories, protein, carbs and fat for the recipe (whole recipe or one serving), also give those four numbers, otherwise null. Reply with ONE JSON object and nothing else: {"recipe": "<the text, with \\n for line breaks>", "calories": number or null, "protein_g": number or null, "carbs_g": number or null, "fat_g": number or null}.`;
 async function recipePhoto(files) {                        // screenshots of a recipe -> text in the Recipe box (checked by the person before Save meal)
   const d = S.fav.draft, say = m => { const e = $('#rcpstat'); if (e) e.textContent = m; };
   if (!d || !files.length) return;
@@ -1585,11 +1585,72 @@ async function recipePhoto(files) {                        // screenshots of a r
     const old = (S.fav.draft.recipe || '').trim();
     S.fav.draft.recipe = old ? old + '\n\n' + txt : txt;
     const ta = $('#draftrecipe'); if (ta) ta.value = S.fav.draft.recipe;
-    say('Read ' + files.length + ' screenshot' + (files.length > 1 ? 's' : '') + '. Check the text, fix anything wrong, then Save meal. ' + (j._note || ''));
+    let extra = '';
+    const kc = gemNum(j.calories), pp = gemNum(j.protein_g), cc = gemNum(j.carbs_g), ff = gemNum(j.fat_g);
+    if (!S.fav.draft.items.length && kc != null && kc >= 0) { S.fav.draft.items.push({name: ((S.fav.draft.name || '').trim() || 'Recipe') + ' (recipe totals)', amt: '1 serving', kcal: kc, p: pp || 0, c: cc || 0, f: ff || 0}); favBuildPaint(); extra = ' Added one item with the calories and macros the recipe lists (' + Math.round(kc) + ' Cal).'; }
+    else if (!S.fav.draft.items.length) extra = ' The recipe lists no calories: tap Get macros from ingredients (USDA lookup) or add one item.';
+    say('Read ' + files.length + ' screenshot' + (files.length > 1 ? 's' : '') + '.' + extra + ' Check the text, fix anything wrong, then Save meal. ' + (j._note || ''));
   } catch (e) {
     const m = String(e.message || e);
     say(e.status === 429 ? 'Google’s free limit is used up for now. Try later. ' + m.slice(0, 200) : /api key/i.test(m) || e.status === 401 || e.status === 403 ? 'Google did not accept the Gemini key (' + m.slice(0, 160) + ').' : 'Reading failed: ' + m.slice(0, 220) + (e.tries ? ' [' + e.tries + ']' : ''));
   }
+}
+/* Get macros from the ingredient lines: Gemini reads the TEXT into {search words, grams or qty+unit}; each ingredient is looked up in USDA; the numbers come from the database, never from Gemini. Weak/unmatched rows are flagged for the person to fix. */
+const RCP_ING_PROMPT = txt => `Read this recipe text and list its food ingredients. Reply with ONE JSON object and nothing else: {"servings": number or null, "ingredients": [{"amount_text": "the amount as written, e.g. 1 cup (150 g)", "search": "2 to 4 words to search the USDA food database, including the state when it matters, e.g. rice white cooked, tuna canned in oil drained, egg white raw, soy sauce, yogurt greek plain nonfat", "grams": number or null, "qty": number or null, "unit": "cup" or "tbsp" or "tsp" or "fl oz" or "piece" or "can" or other word or null}]}. "servings" is how many servings the recipe makes if it says so (for example "Makes 1 Serving"), otherwise null. "grams": the weight in grams ONLY if the recipe states it (use that number) or the amount is in g, kg, oz or lb (convert); otherwise null. Never guess a weight for cups, spoons or pieces: give qty and unit instead. Skip water, optional garnishes and "to taste" items only if they have no amount. Do not invent ingredients. Recipe text:\n\n${txt}`;
+const wordsOf = s => String(s || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(w => w.length > 2);
+async function usdaPick(search) {
+  const key = fdcKey() || 'DEMO_KEY', e = encodeURIComponent, ck = 'rm|' + search.toLowerCase() + '|' + (key === 'DEMO_KEY' ? 0 : 1);
+  let foods = memo.get(ck);
+  if (!foods) { const j = await fetchJson(`https://api.nal.usda.gov/fdc/v1/foods/search?query=${e(search)}&pageSize=8&dataType=${e('Foundation,SR Legacy,Survey (FNDDS)')}&api_key=${e(key)}`); foods = (j.foods || []).map(usdaItem).filter(Boolean); memo.set(ck, foods); }
+  const q = wordsOf(search); let best = null, bs = -1;
+  foods.forEach((it, i) => { const w = new Set(wordsOf(it.name)), hit = q.filter(x => w.has(x)).length, s = hit / Math.max(1, q.length) - i * 0.01; if (s > bs) { bs = s; best = it; } });
+  return best ? {item: best, score: Math.max(0, bs)} : null;
+}
+async function usdaCupG(it) {                              // grams per cup: saved/table first, else the USDA cup portion
+  const c = cupLookup(it); if (c.g > 0) return c.g;
+  const pk0 = 'p' + it.fdc, j = memo.get(pk0) || await fetchJson(`https://api.nal.usda.gov/fdc/v1/food/${it.fdc}?api_key=${encodeURIComponent(fdcKey() || 'DEMO_KEY')}`); memo.set(pk0, j);
+  for (const p of j.foodPortions || []) { const d = String(p.modifier || p.portionDescription || (p.measureUnit && p.measureUnit.name) || ''); if (/^cups?\b/i.test(d) && p.gramWeight > 0) return p.gramWeight / (p.amount > 0 ? p.amount : 1); }
+  return 0;
+}
+async function recipeMacros() {
+  const d = S.fav.draft, say = m => { const el = $('#rcpstat'); if (el) el.textContent = m; };
+  if (!d) return;
+  const txt = (d.recipe || '').trim();
+  if (!txt) { say('Add the recipe text first (type it or use Photo of recipe).'); return; }
+  if (!gemKey()) { say('Needs a free Gemini key: use “Add your free Gemini key” below the search box.'); return; }
+  if (d.items.length && !window.confirm('Replace the ' + d.items.length + ' item' + (d.items.length > 1 ? 's' : '') + ' in this meal with ingredients looked up from the recipe?')) return;
+  say('Reading the ingredient list… (a few seconds)');
+  let j;
+  try { j = await gemCall(null, 'image/jpeg', {imgs: [], prompt: RCP_ING_PROMPT(txt)}); }
+  catch (e) { say('Reading the ingredients failed: ' + String(e.message || e).slice(0, 220)); return; }
+  const ings = Array.isArray(j && j.ingredients) ? j.ingredients.filter(x => x && x.search) : [];
+  if (!ings.length) { say('No ingredients were found in the recipe text.'); return; }
+  const box = parseFloat(($('#draftservings') || {}).value), gs = gemNum(j.servings);
+  const sv = box > 0 ? box : gs > 0 ? gs : 0;
+  if (!(sv > 0)) { say('How many servings does this recipe make? Type it in the Servings box, then tap Get macros from ingredients again.'); const b = $('#draftservings'); if (b) b.focus(); return; }
+  d.servings = sv;
+  const rows = [], bad = [];
+  for (let i = 0; i < ings.length; i++) {
+    const x = ings[i], amt = String(x.amount_text || '').trim() || (x.qty ? x.qty + ' ' + (x.unit || '') : '');
+    say(`Looking up ingredient ${i + 1} of ${ings.length}: ${x.search}…`);
+    let hit = null, err = '';
+    try { hit = await usdaPick(String(x.search)); } catch (e) { err = e.message; }
+    if (err === 'limit reached') { say('The USDA search limit is used up for now (add your own free USDA key below the search box, or try later).'); return; }
+    const row = {name: String(x.search), amt: amt + (sv !== 1 ? ' ÷ ' + rnd(sv, 2) + ' servings' : ''), kcal: 0, p: 0, c: 0, f: 0, src: 'recipe ingredient'};
+    if (!hit) { row.amt += ' · NOT FOUND, type the numbers'; bad.push(String(x.search)); rows.push(row); continue; }
+    const it = hit.item; let g = gemNum(x.grams) > 0 ? gemNum(x.grams) : 0;
+    if (!g && gemNum(x.qty) > 0) {
+      const f = {cup: 1, cups: 1, tbsp: 1 / 16, tablespoon: 1 / 16, tablespoons: 1 / 16, tsp: 1 / 48, teaspoon: 1 / 48, teaspoons: 1 / 48, 'fl oz': 1 / 8}[String(x.unit || '').toLowerCase()];
+      if (f) { try { const cg = await usdaCupG(it); if (cg > 0) g = gemNum(x.qty) * f * cg; } catch (e) { /* flagged below */ } }
+    }
+    row.name = it.name;
+    if (!(g > 0)) { row.amt += ' · NEEDS GRAMS, type the numbers'; bad.push(it.name); rows.push(row); continue; }
+    const k = g / 100 / sv; row.kcal = rnd(it.per100.kcal * k); row.p = rnd(it.per100.p * k, 1); row.c = rnd(it.per100.c * k, 1); row.f = rnd(it.per100.f * k, 1);
+    if (hit.score < 0.6) { row.amt += ' · CHECK MATCH'; bad.push(it.name); }
+    rows.push(row);
+  }
+  d.items = rows; favBuildPaint();
+  say(`Looked up ${rows.length} ingredient${rows.length > 1 ? 's' : ''} in USDA (per serving, ${rnd(sv, 2)} serving${sv === 1 ? '' : 's'} total). ${bad.length ? 'Check these: ' + bad.join('; ') + '. ' : ''}Remove (×) and re-add any wrong row with Type an item, then Save meal.`);
 }
 function showRecipe(f) {                                    // pop-up with the saved recipe text (f.recipe: lines; "## " = heading, "1. " = step, "- " = bullet)
   const o = $('#rcpov'); if (o) o.remove();
@@ -1648,10 +1709,10 @@ function foodAct(a, ds) {
     case 'draftmanual': fs.manual = 'draft'; fs.pick = null; fs.err = ''; fs.results = null; foodPaintRes(); { const n = $('#manualform input[name=name]'); if (n) n.focus(); } return;
     case 'draftsave': {
       const d = S.fav.draft; if (!d) return;
-      if (!(d.name || '').trim()) { fs.save = 'Give the meal a name first.'; foodPaintStat(); return; }
-      if (!d.items.length) { fs.save = 'Add at least one item first.'; foodPaintStat(); return; }
+      if (!(d.name || '').trim()) { fs.save = 'Give the meal a name first.'; foodPaintStat(); const e = $('#rcpstat'); if (e) e.textContent = fs.save; return; }
+      if (!d.items.length) { fs.save = 'Add at least one item first (Type an item, or run Photo of recipe to read the recipe’s calories).'; foodPaintStat(); const e = $('#rcpstat'); if (e) { e.textContent = fs.save; e.scrollIntoView({block: 'center'}); } return; }
       const sum = k => rnd(d.items.reduce((t, e) => t + e[k], 0), 1), name = d.name.trim();
-      const f = {id: d.id || uid(), name, meal: d.meal, amt: '', kcal: rnd(sum('kcal')), p: sum('p'), c: sum('c'), f: sum('f'), items: d.items.map(x => ({...x}))}; if ((d.recipe || '').trim()) f.recipe = d.recipe.trim();
+      const f = {id: d.id || uid(), name, meal: d.meal, amt: '', kcal: rnd(sum('kcal')), p: sum('p'), c: sum('c'), f: sum('f'), items: d.items.map(x => ({...x}))}; if ((d.recipe || '').trim()) f.recipe = d.recipe.trim(); if (d.servings > 0) f.servings = d.servings;
       const at = F.favs.findIndex(x => x.id === f.id);
       F.favs = F.favs.filter(x => x.id === f.id || x.name !== name);
       if (at >= 0) F.favs[F.favs.findIndex(x => x.id === f.id)] = f; else F.favs.push(f);
@@ -1659,7 +1720,7 @@ function foodAct(a, ds) {
     }
     case 'favedit': {
       const f = F.favs[+ds.i]; if (!f) return;
-      if (f.items) { S.fav.draft = {id: f.id, name: f.name, meal: f.meal || 'Lunch', recipe: typeof f.recipe === 'string' && !/^recipes\\/.test(f.recipe) ? f.recipe : '', items: f.items.map(x => ({...x}))}; render(); window.scrollTo(0, 0); return; }
+      if (f.items) { S.fav.draft = {id: f.id, name: f.name, meal: f.meal || 'Lunch', recipe: typeof f.recipe === 'string' && !/^recipes\\/.test(f.recipe) ? f.recipe : '', servings: f.servings || 0, items: f.items.map(x => ({...x}))}; render(); window.scrollTo(0, 0); return; }
       fs.manual = 'fav'; fs.editFav = f.id; fs.pick = null; fs.results = null; foodPaintRes(); { const n = $('#manualform input[name=name]'); if (n) n.focus(); } return;
     }
     case 'recipeview': { const el = $('#favsel'), f = ds.i != null ? F.favs[+ds.i] : (el && el.value !== '' ? F.favs[+el.value] : null); if (f) showRecipe(f); else if (el) el.focus(); return; }
@@ -1669,6 +1730,7 @@ function foodAct(a, ds) {
       if (!inp) { inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.multiple = true; inp.id = 'rcpphoto'; inp.hidden = true; inp.addEventListener('change', () => { const fl = [...(inp.files || [])]; inp.value = ''; if (fl.length) recipePhoto(fl); }); document.body.appendChild(inp); }
       inp.click(); return;
     }
+    case 'recipemacros': return recipeMacros();
     case 'recipeclose': { const o = $('#rcpov'); if (o) o.remove(); return; }
     case 'favrm': { const f = F.favs[+ds.i]; if (!f || !window.confirm('Delete the favorite “' + f.name + '”?')) return; F.favs.splice(+ds.i, 1); F.favTomb.push(f.id); foodPaintFavs(); return foodDirty(); }
     case 'favnew': fs.manual = 'fav'; fs.editFav = null; fs.pick = null; fs.err = ''; fs.results = null; foodPaintRes(); { const n = $('#manualform input[name=name]'); if (n) n.focus(); } return;
@@ -2075,7 +2137,7 @@ function favBuildPaint() {
   h.innerHTML = `<div class="pick"><div class="frow"><b>${d.id ? 'Edit meal' : 'New meal'}</b><small class="meta">nothing gets logged; this only saves the meal</small></div>
     <div class="frow"><input id="draftname" class="in wide" placeholder="Name, e.g. Lunch A" value="${esc(d.name)}" aria-label="Meal name"><select id="draftmeal" class="in" aria-label="Usual meal">${MEALS.map(m => `<option${m === d.meal ? ' selected' : ''}>${m}</option>`).join('')}</select></div>
     <textarea id="draftrecipe" class="in wide" rows="5" style="width:100%;margin:6px 0" placeholder="Recipe (optional). One step per line, e.g. 1. Drain the tuna" aria-label="Recipe text">${esc(d.recipe || '')}</textarea>
-    <div class="frow"><button class="btn" data-fa="recipephoto">Photo of recipe</button><small class="meta" id="rcpstat">Pick one or more screenshots, in order. The text lands above for you to check.</small></div>
+    <div class="frow"><button class="btn" data-fa="recipephoto">Photo of recipe</button><button class="btn" data-fa="recipemacros">Get macros from ingredients</button><label class="meta">Servings <input id="draftservings" class="in num" type="number" min="0.25" step="0.25" value="${d.servings || ''}" style="width:68px" aria-label="Servings this recipe makes"></label><small class="meta" id="rcpstat">Pick one or more screenshots, in order. The text lands above for you to check.</small></div>
     ${d.items.length ? `<div class="tablewrap"><table><thead><tr><th>Item</th><th class="num">Cal</th><th class="num">P</th><th class="num">C</th><th class="num">F</th><th></th></tr></thead><tbody>${d.items.map((x, i) => `<tr><td>${esc(x.name)}${x.amt ? `<small>${esc(x.amt)}</small>` : ''}</td><td class="num">${n0(x.kcal)}</td><td class="num">${rnd(x.p)}</td><td class="num">${rnd(x.c)}</td><td class="num">${rnd(x.f)}</td><td class="num"><button class="lnk" data-fa="draftrm" data-i="${i}" aria-label="Remove ${esc(x.name)}">×</button></td></tr>`).join('')}</tbody><tfoot><tr><td>Total</td><td class="num">${n0(sum('kcal'))}</td><td class="num">${rnd(sum('p'))}</td><td class="num">${rnd(sum('c'))}</td><td class="num">${rnd(sum('f'))}</td><td></td></tr></tfoot></table></div>` : '<p class="meta">No items yet. Look a food up below, or type one.</p>'}
     <div class="frow" style="margin-top:10px"><button class="btn" data-fa="draftmanual">Type an item</button><button class="btn solid" data-fa="draftsave">Save meal</button><button class="lnk" data-fa="draftcancel">Cancel</button></div></div>`;
 }
@@ -2097,7 +2159,7 @@ function favScreen() {
 }
 function favSetView() { const v = routeFromHash(); if (v !== S.view) { S.view = v; S.homeMsg = ''; S.fav.draft = null; window.scrollTo(0, 0); render(); } }
 window.addEventListener('hashchange', favSetView);
-document.addEventListener('input', ev => { const d = S.fav.draft; if (!d) return; if (ev.target.id === 'draftname') d.name = ev.target.value; else if (ev.target.id === 'draftmeal') d.meal = ev.target.value; else if (ev.target.id === 'draftrecipe') d.recipe = ev.target.value; });
+document.addEventListener('input', ev => { const d = S.fav.draft; if (!d) return; if (ev.target.id === 'draftname') d.name = ev.target.value; else if (ev.target.id === 'draftmeal') d.meal = ev.target.value; else if (ev.target.id === 'draftrecipe') d.recipe = ev.target.value; else if (ev.target.id === 'draftservings') d.servings = parseFloat(ev.target.value) > 0 ? parseFloat(ev.target.value) : 0; });
 
 function page() {
   const [a, b] = range(), days = listDays(a, b), gran = granFor(days.length);
