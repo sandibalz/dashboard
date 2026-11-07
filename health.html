@@ -549,7 +549,7 @@ async function loadAny(file, onProgress) {
    Opened as a file on your computer: the summary is kept in this browser.
    Served over https (GitHub Pages): nothing is kept in the browser. The summary lives in your
    OneDrive behind the Microsoft sign-in (section 4b), the same way the Collector Overview page works. */
-const PAGE_VERSION = '2026-11-06h';                       // bump on every change, same habit as the Overview page; shown next to the title
+const PAGE_VERSION = '2026-11-06i';                       // bump on every change, same habit as the Overview page; shown next to the title
 const CLOUD = location.protocol === 'https:';
 const KEY = 'healthlog.summary.v1';
 const Store = {
@@ -1608,22 +1608,29 @@ async function usdaFoods(search) {                          // one USDA search, 
   if (memo.has(ck)) return memo.get(ck);
   let j, last;
   for (let k = 0; k < 2; k++) {
-    try { j = await fetchJson(`https://api.nal.usda.gov/fdc/v1/foods/search?query=${e(search)}&pageSize=10&dataType=${e('Foundation,SR Legacy,Survey (FNDDS)')}&api_key=${e(key)}`); break; }
+    try { j = await fetchJson(`https://api.nal.usda.gov/fdc/v1/foods/search?query=${e(search)}&pageSize=15&dataType=${e('Foundation,SR Legacy,Survey (FNDDS)')}&api_key=${e(key)}`); break; }
     catch (x) { last = x; if (x.message === 'limit reached') throw x; await pause(800); }
   }
   if (!j) throw last;
   const foods = (j.foods || []).map(usdaItem).filter(Boolean); memo.set(ck, foods); return foods;
 }
-async function usdaPick(search) {                           // best match by shared words; if nothing comes back, tries fewer search words
-  const q = wordsOf(search), tries = [search]; if (q.length > 2) tries.push(q.slice(0, 2).join(' ')); if (q.length > 1) tries.push(q[0]);
-  let foods = [], why = 'no results';
-  for (const s of [...new Set(tries)]) {
-    try { foods = await usdaFoods(s); } catch (x) { if (x.message === 'limit reached') throw x; why = x.message; foods = []; }
-    if (foods.length) break;
-  }
-  let best = null, bs = -1;
+function usdaRank(foods, q) {                                // best food for the wanted words: shared words, minus variant foods, minus a little for lower search rank
+  let best = null, bs = -9;
   foods.forEach((it, i) => { const dw = wordsOf(it.name), w = new Set(dw), hit = q.filter(x => w.has(x)).length, odd = dw.filter(x => VARIANT.has(x) && !q.includes(x)).length, s = hit / Math.max(1, q.length) - odd * 0.1 - i * 0.01; if (s > bs) { bs = s; best = it; } });
-  return best ? {item: best, score: Math.max(0, bs)} : {why};
+  return best ? {item: best, score: Math.max(0, bs)} : null;
+}
+async function usdaPick(search) {                           // searches with all the words; if the best match is weak (or nothing came back) also tries fewer words, and keeps the best match found by any search
+  const ow = String(search).toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean), q = wordsOf(search), tries = [String(search)];
+  if (ow.length > 2) tries.push(ow.slice(0, 2).join(' ')); if (ow.length > 1) tries.push(ow[0]);
+  let best = null, why = 'no results';
+  for (const s of [...new Set(tries)]) {
+    let foods = [];
+    try { foods = await usdaFoods(s); } catch (x) { if (x.message === 'limit reached') throw x; why = x.message; }
+    const r = usdaRank(foods, q);
+    if (r && (!best || r.score > best.score)) best = r;
+    if (best && best.score >= 0.6) break;
+  }
+  return best || {why};
 }
 async function usdaUnitG(it, unit) {                        // grams for ONE cup / tbsp / tsp: a weight you saved, else the USDA portion for that exact unit, else the USDA cup portion scaled, else the rough cup table
   const F1 = {cup: 1, tbsp: 1 / 16, tsp: 1 / 48, 'fl oz': 1 / 8}[unit]; if (!F1) return 0;
