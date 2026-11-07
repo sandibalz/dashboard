@@ -549,7 +549,7 @@ async function loadAny(file, onProgress) {
    Opened as a file on your computer: the summary is kept in this browser.
    Served over https (GitHub Pages): nothing is kept in the browser. The summary lives in your
    OneDrive behind the Microsoft sign-in (section 4b), the same way the Collector Overview page works. */
-const PAGE_VERSION = '2026-11-06g';                       // bump on every change, same habit as the Overview page; shown next to the title
+const PAGE_VERSION = '2026-11-06h';                       // bump on every change, same habit as the Overview page; shown next to the title
 const CLOUD = location.protocol === 'https:';
 const KEY = 'healthlog.summary.v1';
 const Store = {
@@ -1599,7 +1599,9 @@ async function recipePhoto(files) {                        // screenshots of a r
 }
 /* Get macros from the ingredient lines: Gemini reads the TEXT into {search words, grams or qty+unit}; each ingredient is looked up in USDA; the numbers come from the database, never from Gemini. Weak/unmatched rows are flagged for the person to fix. */
 const RCP_ING_PROMPT = txt => `Read this recipe text and list its food ingredients. Reply with ONE JSON object and nothing else: {"servings": number or null, "ingredients": [{"amount_text": "the amount as written, e.g. 1 cup (150 g)", "search": "2 to 4 words to search the USDA food database, including the state when it matters, e.g. rice white cooked, tuna canned in oil drained, egg white raw, soy sauce, yogurt greek plain nonfat", "grams": number or null, "qty": number or null, "unit": "cup" or "tbsp" or "tsp" or "fl oz" or "piece" or "can" or other word or null}]}. "servings" is how many servings the recipe makes if it says so (for example "Makes 1 Serving"), otherwise null. "grams": the weight in grams ONLY if the recipe states it (use that number) or the amount is in g, kg, oz or lb (convert); otherwise null. Never guess a weight for cups, spoons or pieces: give qty and unit instead. Skip water, optional garnishes and "to taste" items only if they have no amount. Do not invent ingredients. Recipe text:\n\n${txt}`;
-const wordsOf = s => String(s || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(w => w.length > 2);
+const stem = w => w.replace(/s$/, '');                       // whites = white
+const wordsOf = s => String(s || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(w => w.length > 2).map(stem);
+const VARIANT = new Set(['glutinous', 'sweetened', 'flavored', 'flavoured', 'fried', 'dried', 'dehydrated', 'powder', 'powdered', 'baby', 'babyfood', 'infant', 'restaurant', 'fast', 'school', 'mix', 'instant', 'imitation', 'substitute', 'candied', 'chocolate', 'toddler'].map(stem));   // a different food unless the recipe says so
 const pause = ms => new Promise(r => setTimeout(r, ms));
 async function usdaFoods(search) {                          // one USDA search, retried once after a short wait (the service is sometimes flaky)
   const key = fdcKey() || 'DEMO_KEY', e = encodeURIComponent, ck = 'rm|' + search.toLowerCase() + '|' + (key === 'DEMO_KEY' ? 0 : 1);
@@ -1620,7 +1622,7 @@ async function usdaPick(search) {                           // best match by sha
     if (foods.length) break;
   }
   let best = null, bs = -1;
-  foods.forEach((it, i) => { const w = new Set(wordsOf(it.name)), hit = q.filter(x => w.has(x)).length, s = hit / Math.max(1, q.length) - i * 0.01; if (s > bs) { bs = s; best = it; } });
+  foods.forEach((it, i) => { const dw = wordsOf(it.name), w = new Set(dw), hit = q.filter(x => w.has(x)).length, odd = dw.filter(x => VARIANT.has(x) && !q.includes(x)).length, s = hit / Math.max(1, q.length) - odd * 0.1 - i * 0.01; if (s > bs) { bs = s; best = it; } });
   return best ? {item: best, score: Math.max(0, bs)} : {why};
 }
 async function usdaUnitG(it, unit) {                        // grams for ONE cup / tbsp / tsp: a weight you saved, else the USDA portion for that exact unit, else the USDA cup portion scaled, else the rough cup table
