@@ -549,7 +549,7 @@ async function loadAny(file, onProgress) {
    Opened as a file on your computer: the summary is kept in this browser.
    Served over https (GitHub Pages): nothing is kept in the browser. The summary lives in your
    OneDrive behind the Microsoft sign-in (section 4b), the same way the Collector Overview page works. */
-const PAGE_VERSION = '2026-11-06f';                       // bump on every change, same habit as the Overview page; shown next to the title
+const PAGE_VERSION = '2026-11-06g';                       // bump on every change, same habit as the Overview page; shown next to the title
 const CLOUD = location.protocol === 'https:';
 const KEY = 'healthlog.summary.v1';
 const Store = {
@@ -1282,7 +1282,7 @@ async function gemCall1(b64, mime, model, opt) {            // opt = {prompt, im
   if (gemMode) tries.sort((p, q) => (q[0] === gemMode) - (p[0] === gemMode));
   let last = null; const errs = [];
   for (const [id, path, body, simple] of tries) {
-    const ctl = new AbortController(), tm = setTimeout(() => ctl.abort(), 60000);
+    const ctl = new AbortController(), tm = setTimeout(() => ctl.abort(), (opt && opt.timeout) || 60000);
     try {
       const r = await fetch(GEM_BASE + path, {method: 'POST', headers: simple ? {'Content-Type': 'text/plain'} : {'Content-Type': 'application/json', 'x-goog-api-key': key}, body: JSON.stringify(body), signal: ctl.signal});
       const raw = await r.text(); let j = null; try { j = JSON.parse(raw); } catch (x) { }
@@ -1294,7 +1294,8 @@ async function gemCall1(b64, mime, model, opt) {            // opt = {prompt, im
       }
       const o = gemJson(gemText(j)); if (o) { gemMode = id; return o; }
       last = new Error('the reply could not be understood'); errs.push(id + ': unreadable reply');
-    } catch (e) { if (e.fatal || e.stop) throw e; last = e.name === 'AbortError' ? new Error('Google took too long to answer') : e; errs.push(id + ': ' + (last.message || last).toString().slice(0, 80)); }
+    } catch (e) { if (e.fatal || e.stop) throw e; if (e.name === 'AbortError') { const x = new Error('Google took too long to answer'); x.status = 504; x.stop = true; throw x; }   // slow = busy: go straight to the next model instead of retrying the same one 4 more ways
+      last = e.name === 'AbortError' ? new Error('Google took too long to answer') : e; errs.push(id + ': ' + (last.message || last).toString().slice(0, 80)); }
     finally { clearTimeout(tm); }
   }
   if (last) last.tries = errs.join(' | ');
@@ -1313,14 +1314,14 @@ async function gemCall(b64, mime, opt) {
   }
   last.message += ' (tried ' + list.join(', ') + ')'; throw last;
 }
-async function photoPrep(file) {                            // keeps the picture sharp enough to read a panel: long side up to 2560 px, JPEG
+async function photoPrep(file, maxSide = 2560, q = 0.9) {                            // keeps the picture sharp enough to read a panel: long side up to 2560 px, JPEG
   let im;
   try { im = await createImageBitmap(file); }
   catch (x) { im = await new Promise((res, rej) => { const u = URL.createObjectURL(file), i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('That picture could not be opened.')); i.src = u; }); }
-  const w = im.width || im.naturalWidth, h = im.height || im.naturalHeight, s = Math.min(1, 2560 / Math.max(w, h)), c = document.createElement('canvas');
+  const w = im.width || im.naturalWidth, h = im.height || im.naturalHeight, s = Math.min(1, maxSide / Math.max(w, h)), c = document.createElement('canvas');
   c.width = Math.max(1, Math.round(w * s)); c.height = Math.max(1, Math.round(h * s));
   c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
-  return c.toDataURL('image/jpeg', 0.9).split(',')[1];
+  return c.toDataURL('image/jpeg', q).split(',')[1];
 }
 function labelItem(j) {                                     // a food from the numbers printed on the label (null unless calories, protein, carbs and fat were all read)
   const kc = gemNum(j.calories), p = gemNum(j.protein_g), c = gemNum(j.carbs_g), f = gemNum(j.fat_g);
@@ -1575,10 +1576,10 @@ async function recipePhoto(files) {                        // screenshots of a r
   const d = S.fav.draft, say = m => { const e = $('#rcpstat'); if (e) e.textContent = m; };
   if (!d || !files.length) return;
   files = files.slice(0, 8);
-  say(`Reading ${files.length} screenshot${files.length > 1 ? 's' : ''}… (a few seconds)`);
+  say(`Reading ${files.length} screenshot${files.length > 1 ? 's' : ''}… (usually under a minute; if Google is busy it tries other models)`);
   try {
-    const imgs = []; for (const f of files) imgs.push(await photoPrep(f));
-    const j = await gemCall(imgs[0], 'image/jpeg', {imgs, prompt: RCP_PROMPT(imgs.length)});
+    const imgs = []; for (const f of files) imgs.push(await photoPrep(f, 1800, 0.8));        // text screenshots need less detail than a label panel: smaller upload, faster answer
+    const j = await gemCall(imgs[0], 'image/jpeg', {imgs, prompt: RCP_PROMPT(imgs.length), timeout: 40000});
     const txt = String(j && j.recipe || '').trim();
     if (!txt) { say('No recipe text was found in the picture' + (files.length > 1 ? 's' : '') + '.'); return; }
     if (!S.fav.draft) return;
@@ -1593,7 +1594,7 @@ async function recipePhoto(files) {                        // screenshots of a r
     say('Read ' + files.length + ' screenshot' + (files.length > 1 ? 's' : '') + '.' + extra + ' Check the text, fix anything wrong, then Save meal. ' + (j._note || ''));
   } catch (e) {
     const m = String(e.message || e);
-    say(e.status === 429 ? 'Google’s free limit is used up for now. Try later. ' + m.slice(0, 200) : /api key/i.test(m) || e.status === 401 || e.status === 403 ? 'Google did not accept the Gemini key (' + m.slice(0, 160) + ').' : 'Reading failed: ' + m.slice(0, 220) + (e.tries ? ' [' + e.tries + ']' : ''));
+    say(e.status === 429 ? 'Google’s free limit is used up for now. Try later. ' + m.slice(0, 200) : /api key/i.test(m) || e.status === 401 || e.status === 403 ? 'Google did not accept the Gemini key (' + m.slice(0, 160) + ').' : (/too long/i.test(m) ? 'Google is slow or busy right now, so every model timed out. Wait a minute and tap Photo of recipe again (nothing was lost). ' : 'Reading failed: ' + m.slice(0, 220)) + (e.tries ? ' [' + e.tries + ']' : ''));
   }
 }
 /* Get macros from the ingredient lines: Gemini reads the TEXT into {search words, grams or qty+unit}; each ingredient is looked up in USDA; the numbers come from the database, never from Gemini. Weak/unmatched rows are flagged for the person to fix. */
@@ -1642,7 +1643,7 @@ async function recipeMacros() {
   if (d.items.length && !window.confirm('Replace the ' + d.items.length + ' item' + (d.items.length > 1 ? 's' : '') + ' in this meal with ingredients looked up from the recipe?')) return;
   say('Reading the ingredient list… (a few seconds)');
   let j;
-  try { j = await gemCall(null, 'image/jpeg', {imgs: [], prompt: RCP_ING_PROMPT(txt)}); }
+  try { j = await gemCall(null, 'image/jpeg', {imgs: [], prompt: RCP_ING_PROMPT(txt), timeout: 40000}); }
   catch (e) { say('Reading the ingredients failed: ' + String(e.message || e).slice(0, 220)); return; }
   const ings = Array.isArray(j && j.ingredients) ? j.ingredients.filter(x => x && x.search) : [];
   if (!ings.length) { say('No ingredients were found in the recipe text.'); return; }
