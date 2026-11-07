@@ -88,7 +88,8 @@ tr:hover .setrow, .setrow:focus-within { display: flex; }
 .setup input { width: 100%; font: inherit; font-size: 14px; padding: 8px 10px; border: 1px solid #ced4da; border-radius: 6px; background: #fff; color: var(--ink); }
 .btn { background: var(--accent); color: #fff; border: none; border-radius: 6px; padding: 9px 16px; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; margin: 12px 8px 0 0; }
 .btn.alt { background: var(--grey); }
-.tools { display: flex; gap: 8px; align-items: center; margin-left: auto; }
+.tools { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin-left: auto; min-width: 0; max-width: 100%; }   /* wraps onto a second line on a phone: a row that cannot wrap makes iOS zoom the whole page out */
+.tools .sub { white-space: nowrap; }
 .tbtn { border: 1px solid #ced4da; background: #fff; border-radius: 6px; font-size: 12px; padding: 3px 10px; cursor: pointer; color: var(--ink); }
 .err { background: #ffe8ea; border: 1px solid #f5b5bb; color: #8a1f27; border-radius: 6px; font-size: 12px; padding: 6px 10px; margin-top: 8px; line-height: 1.4; }
 .ic.confirm { background: var(--bad); width: auto; padding: 0 5px; }
@@ -305,7 +306,7 @@ const rowCls = p => {
   return c;
 };
 /* 11/1/26a: "Now" line = latest balance-only read (button on Free Spins sites). Blue = fine, red = the last read failed. */
-const PAGE_VERSION = '2026-11-06a';
+const PAGE_VERSION = '2026-11-06b';
 const agoTxt = ms => { const m = Math.max(0, Math.round((Date.now() - ms) / 60000)); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago'; };
 function liveLine(p, m) {
   if (!p.canBal) return '';
