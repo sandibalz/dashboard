@@ -549,7 +549,7 @@ async function loadAny(file, onProgress) {
    Opened as a file on your computer: the summary is kept in this browser.
    Served over https (GitHub Pages): nothing is kept in the browser. The summary lives in your
    OneDrive behind the Microsoft sign-in (section 4b), the same way the Collector Overview page works. */
-const PAGE_VERSION = '2026-11-06i';                       // bump on every change, same habit as the Overview page; shown next to the title
+const PAGE_VERSION = '2026-11-07a';                       // bump on every change, same habit as the Overview page; shown next to the title
 const CLOUD = location.protocol === 'https:';
 const KEY = 'healthlog.summary.v1';
 const Store = {
@@ -2256,7 +2256,7 @@ function page() {
     <div class="grid2">${blk('c-rhr')}${blk('c-hrv')}${hasVo2 ? blk('c-vo2', 'Apple Watch estimates') : ''}</div>
     <div id="hrdayhost" style="margin-top:30px"></div></section>
 
-  <section aria-labelledby="h-wk"><h2 id="h-wk">Workouts</h2>
+  <section aria-labelledby="h-wk"><h2 id="h-wk">Workouts</h2><p class="meta" style="margin:0 0 8px"><a class="lnk" href="runs.html">Open Runs and workouts</a> for pace, intervals, splits, power and routes.</p>
     <p class="lede">${n0(inR.length)} in this range. Click a column heading to sort.</p>
     ${wser.length ? `<div style="margin-bottom:26px">${blk('c-wk', 'Minutes per ' + (gran === 'day' ? 'day' : gran))}</div>` : ''}
     <div id="tmhost" style="margin-bottom:26px"></div>
@@ -2444,7 +2444,7 @@ function homeHTML() {
   let sd = null; for (let i = ds.length - 1; i >= 0 && !sd; i--) if (dd(ds[i]).sleep != null) sd = ds[i];
   if (sd) out.push(sleepTile(sd, ds, dd));
   return `<h2>Health log</h2><p class="lede">Latest health data is from ${fmtDate(M.last)}${M.exportDate ? ' (export ' + fmtDate(M.exportDate) + ')' : ''}; food and weight are live. Tap a tile for details and history.</p>${S.homeMsg ? `<p class="meta" role="status" style="margin:-10px 0 14px">${esc(S.homeMsg)}</p>` : ''}<div class="tiles">${out.join('')}</div>
-    <p class="meta" style="margin-top:18px"><a class="lnk" href="#favorites">Manage favorites</a> · <a class="lnk" href="#all">Everything on one page</a></p>`;
+    <p class="meta" style="margin-top:18px"><a class="lnk" href="#favorites">Manage favorites</a> · <a class="lnk" href="runs.html">Runs and workouts</a> · <a class="lnk" href="#all">Everything on one page</a></p>`;
 }
 const prog = b => `${(b.read / 1048576).toFixed(0)} MB of ${(b.total / 1048576).toFixed(0)} MB · ${n0(b.records)} records`;
 function mountHeatmap() {
