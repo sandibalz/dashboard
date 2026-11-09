@@ -40,7 +40,7 @@ body.embed .bar b{display:none}
 <div class="bar" id="top">
   <b>Watch</b><span id="chips" style="display:contents"></span>
   <select id="qual" title="Picture quality of the small tiles. Lower = less load on the watched PCs."><option value="low">Low (300 kbps, 5 fps)</option><option value="mid">Medium (800 kbps, 10 fps)</option><option value="high">High (2 Mbps, 15 fps)</option></select>
-  <button id="bMode" class="tog" title="Touch screens: one finger on the selected PC scrolls (Scroll) or drags (Drag)">Touch: Scroll</button><button id="bKb" title="Keyboard keys for the selected PC">&#9000; Keys</button>
+  <button id="bMode" class="tog" title="Touch screens: one finger on the selected PC scrolls (Scroll) or drags (Drag)">Touch: Scroll</button><button id="bKb" title="Keyboard keys for the selected PC">&#9000; Keys</button><button id="bCopy" title="Copy the text on the selected PC to this device's clipboard">Copy from PC</button>
   <button id="bRe" title="Reconnect all tiles">Reconnect</button>
   <button id="bSet" title="Key">&#9881;</button>
   <button id="bLog">Log</button>
@@ -247,8 +247,9 @@ async function connect(n) {
   const c = t.conn = { n, pc, sid, ready: false, dc: null, sigChain: Promise.resolve(), pend: [], ws: s.ws, last: { b: 0, t: 0 } };
   dlog('connect ' + n); setSt(n, 'connecting…');
   const dc = c.dc = pc.createDataChannel('ctl', { ordered: true });
-  dc.onopen = () => { c.ready = true; clearTimeout(c.to); dlog(n + ': data channel open'); setSt(n, 'live'); sendQ(c, activeN === n); c.stats = setInterval(() => stats(c), 2000); };
-  dc.onmessage = () => {};
+  dc.onopen = () => { c.ready = true; clearTimeout(c.to); dlog(n + ': data channel open'); setSt(n, 'live'); sendQ(c, activeN === n); c.stats = setInterval(() => stats(c), 2000); setTimeout(() => { if (t.conn === c) rpcT(t, 'clipget', { peek: true }).then((r) => { t.hostSeq = r.seq; dlog(n + ': clipboard ready'); }, (e) => dlog(n + ': clipboard NOT available (' + e.message + ')')); }, 2500); };
+  c.rw = new Map(); c.rid = 1; t.hostSeq = null;
+  dc.onmessage = (ev) => { let m; try { m = JSON.parse(ev.data); } catch (e) { return; } if (m && m.t === 'rpcR') { const w = c.rw.get(m.id); if (w) { c.rw.delete(m.id); m.ok ? w.res(m.r) : w.rej(new Error(m.err)); } } };
   dc.onclose = () => { if (t.conn === c) closeConn(n, true, 'closed'); };
   pc.addTransceiver('video', { direction: 'recvonly' });
   pc.ontrack = (e) => { try { e.receiver.jitterBufferTarget = 0; } catch {} t.v.srcObject = e.streams[0] || new MediaStream([e.track]); t.v.play().catch(() => {}); };
@@ -411,26 +412,78 @@ function wireInput(t) {
 // tapping anywhere else (not the Keys / Touch buttons or the key bar) turns control off
 addEventListener('pointerdown', (e) => {
   const t = act(); if (!t || t.el.contains(e.target)) return;
-  if (e.target.closest && e.target.closest('#keysbar,#bKb,#bMode')) return;
+  if (e.target.closest && e.target.closest('#keysbar,#bKb,#bMode,#bCopy,#copybox')) return;
   deselect();
 }, true);
 // keyboard (desktop): goes to the selected tile only; Esc turns control off (use the Keys bar to send Esc to the PC)
 const KC = { Backspace: 8, Tab: 9, Enter: 13, Escape: 27, PageUp: 33, PageDown: 34, ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, Delete: 46 };
 const typing = () => { const a = document.activeElement; return !!a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName); };
-async function pasteLocal() {
-  const t = act(); if (!t) return;
-  try { const x = await navigator.clipboard.readText(); if (x) sendT(t, { t: 'in', k: 'tx', text: x }); else note('Clipboard is empty.'); }
-  catch (e) { note('Clipboard blocked: ' + e.message); }
+// ---- two-way clipboard for the selected tile (needs the input helper on that PC, same as Remote) ----
+function rpcT(t, op, args) {
+  return new Promise((res, rej) => {
+    const c = t && t.conn; if (!c || !c.ready || c.dc.readyState !== 'open') return rej(new Error('not connected'));
+    const id = c.rid++; c.rw.set(id, { res, rej });
+    c.dc.send(JSON.stringify({ t: 'rpc', id, op, args }));
+    setTimeout(() => { if (c.rw.delete(id)) rej(new Error('timeout')); }, 8000);
+  });
 }
+const flashN = (m) => { note(m); setTimeout(() => note(''), 3500); };
+function comboT(t, key) {   // Ctrl+<key> on that PC
+  const code = 'Key' + key.toUpperCase(), kc = key.toUpperCase().charCodeAt(0);
+  sendT(t, { t: 'in', k: 'kd', key: 'Control', code: 'ControlLeft', kc: 17, mod: 2, rep: false });
+  sendT(t, { t: 'in', k: 'kd', key, code, kc, mod: 2, rep: false });
+  sendT(t, { t: 'in', k: 'ku', key, code, kc, mod: 2 });
+  sendT(t, { t: 'in', k: 'ku', key: 'Control', code: 'ControlLeft', kc: 17, mod: 0 });
+}
+async function pasteViaHost(text) {
+  const t = act(); if (!t) return;
+  if (!text) { comboT(t, 'v'); return; }   // nothing on your clipboard: Ctrl+V on the PC pastes its own clipboard
+  if (text.length > 50000) { flashN('Clipboard text is longer than 50,000 characters. Not sent.'); return; }
+  try { const r = await rpcT(t, 'clipset', { text }); t.hostSeq = r.seq; comboT(t, 'v'); flashN('Pasted ' + text.length + ' characters on ' + t.n + '.'); }
+  catch (e) { sendT(t, { t: 'in', k: 'tx', text }); flashN('Typed it instead (' + (e.message === 'timeout' ? 'helper did not answer' : e.message) + ').'); }
+}
+function showCopyBox(text) {
+  let b = document.getElementById('copybox');
+  if (!b) { b = document.createElement('div'); b.id = 'copybox'; b.style.cssText = 'position:fixed;left:8px;right:8px;bottom:8px;z-index:50;background:#171b24;border:1px solid #333c4d;border-radius:10px;padding:8px;display:flex;flex-direction:column;gap:6px;color:#e6e9ef'; document.body.appendChild(b); }
+  b.innerHTML = '<div>Host text (select all and copy it here):</div>';
+  const ta = document.createElement('textarea'); ta.value = text; ta.readOnly = true; ta.style.cssText = 'width:100%;height:90px'; b.appendChild(ta);
+  const x = document.createElement('button'); x.textContent = 'Close'; x.onclick = () => b.remove(); b.appendChild(x); ta.focus(); ta.select();
+}
+let copyBusy = false;
+async function copyFromHost(force) {
+  const t = act(); if (!t || copyBusy) return; copyBusy = true;
+  try {
+    const r = await rpcT(t, 'clipget');
+    if (!force && t.hostSeq != null && r.seq === t.hostSeq) return;   // nothing new was copied on the PC
+    t.hostSeq = r.seq;
+    if (!r.text) { flashN('The ' + t.n + ' clipboard has no text.'); return; }
+    try { await navigator.clipboard.writeText(r.text); flashN('Copied ' + r.text.length + ' characters from ' + t.n + (r.cut ? ' (cut at 50,000)' : '') + '.'); }
+    catch (e) { showCopyBox(r.text); flashN('Your browser blocked the copy. Use the box at the bottom.'); }
+  } catch (e) { flashN(e.message === 'timeout' ? 'The PC did not answer. Is the helper updated?' : e.message); }
+  finally { copyBusy = false; }
+}
+async function pasteLocal() {   // Keys bar / phone keyboard path (no paste event there)
+  const t = act(); if (!t) return;
+  try { pasteViaHost(await navigator.clipboard.readText()); }
+  catch (e) { flashN('Clipboard blocked: ' + e.message); }
+}
+document.addEventListener('paste', (e) => {   // Ctrl+V on the page while a tile is selected
+  if (!act() || typing() || ovFor) return;
+  e.preventDefault();
+  pasteViaHost((e.clipboardData && e.clipboardData.getData('text/plain')) || '');
+});
 addEventListener('keydown', (e) => {
   const t = act(); if (!t || typing() || ovFor) return;
   if (e.key === 'Escape') { deselect(); e.preventDefault(); return; }
+  const cm = (e.ctrlKey || e.metaKey) && !e.altKey, ck = e.key.toLowerCase();
+  if (cm && ck === 'v') return;   // no preventDefault: the browser fires the paste event, handled above
   e.preventDefault();
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') return pasteLocal();
   sendT(t, { t: 'in', k: 'kd', key: e.key, code: e.code, kc: e.keyCode, text: e.key === 'Enter' ? '\r' : e.key.length === 1 ? e.key : undefined, mod: mods(e), rep: e.repeat });
+  if (cm && !e.repeat && (ck === 'c' || ck === 'x')) setTimeout(() => copyFromHost(false), 450);   // give the PC a moment to fill its clipboard
 }, true);
 addEventListener('keyup', (e) => {
   const t = act(); if (!t || typing() || ovFor) return;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') return;
   e.preventDefault(); sendT(t, { t: 'in', k: 'ku', key: e.key, code: e.code, kc: e.keyCode, mod: mods(e) });
 }, true);
 // Keys bar + phone keyboard (typed text goes through a hidden textarea)
@@ -448,6 +501,7 @@ $('#bKb').onclick = () => {
   k.style.display = on ? 'flex' : 'none'; $('#bKb').classList.toggle('on', on);
   if (on) { const h = $('#hid'); h.value = ''; h.focus(); } else $('#hid').blur();
 };
+$('#bCopy').onclick = () => { if (!act()) { flashN('Tap a tile first, then Copy from PC.'); return; } copyFromHost(true); };
 $('#bMode').onclick = () => { touchMode = touchMode === 'scroll' ? 'drag' : 'scroll'; $('#bMode').textContent = 'Touch: ' + (touchMode === 'scroll' ? 'Scroll' : 'Drag'); $('#bMode').classList.toggle('on', touchMode === 'drag'); };
 const hid = $('#hid');
 hid.addEventListener('beforeinput', (e) => {
