@@ -553,7 +553,7 @@ async function loadAny(file, onProgress) {
    Opened as a file on your computer: the summary is kept in this browser.
    Served over https (GitHub Pages): nothing is kept in the browser. The summary lives in your
    OneDrive behind the Microsoft sign-in (section 4b), the same way the Collector Overview page works. */
-const PAGE_VERSION = '2026-11-07b';                       // bump on every change, same habit as the Overview page; shown next to the title
+const PAGE_VERSION = '2026-11-07c';                       // bump on every change, same habit as the Overview page; shown next to the title
 const CLOUD = location.protocol === 'https:';
 const KEY = 'healthlog.summary.v1';
 const Store = {
@@ -2379,7 +2379,7 @@ function actTile(L, ds) {                                  // one tile: Move / E
   const lastw = lw ? `<a class="lnk" href="#workouts">Last: ${esc(prettyType(lw.t))} ${n0(lw.min)} min · ${esc(dayLabel(lw.d))} · ${wcount} in 7 days ›</a>` : '<a class="lnk" href="#workouts">Workouts: none logged ›</a>';
   return `<div class="tile"><a class="tbody" href="#activity"><div class="tl"><span>Activity · ${esc(dayLabel(L))}</span><span aria-hidden="true">›</span></div>
     <div style="display:flex;gap:14px;align-items:center;margin-top:8px"><svg viewBox="0 0 200 200" role="img" aria-label="Move, exercise and steps rings" style="width:104px;height:104px;flex:none;margin:0">${s}</svg><ul style="list-style:none;margin:0;padding:0;font-size:13.5px;min-width:0">${R.map(row).join('')}</ul></div></a>
-    <div class="tqa" style="padding-bottom:8px">${lastw}</div>
+    <div class="tqa" style="padding-bottom:8px">${lastw}${CLOUD ? ' <span class="meta">·</span> <a class="lnk" href="runs.html">Runs and workouts ›</a>' : ''}</div>
     <div class="tqa">${tmQuick()}</div>
     <div class="tqa" style="padding-top:0"><label class="meta">Steps goal <input class="in num" type="number" min="1000" max="100000" step="500" value="${sg}" data-stepgoal aria-label="Daily steps goal" style="width:84px"></label></div></div>`;
 }
