@@ -155,7 +155,7 @@ code.k { background: var(--head); border: 1px solid var(--line); border-radius: 
 <body>
 <div class="top">
   <div class="owners" id="owners" role="tablist" aria-label="Owner"></div>
-  <div class="sum"><span id="sum" style="display:contents"></span><span class="tools"><span class="sub" id="pgver" title="Version of this page. If it is not the latest, press Publish on the page that has it, then reload (the engine version shown is what the selected owner's Chrome is running)."></span><span class="sub" id="refreshed"></span><button class="tbtn" id="btn-refresh" title="Reload from OneDrive">↻</button><button class="tbtn" id="btn-panes" title="Show all four owners at once, each in its own scrolling pane">Panes</button><button class="tbtn" id="btn-view">Table</button><button class="tbtn" id="btn-remote">Remote</button><button class="tbtn" id="btn-watch" title="Watch several PCs at once (view only, click a tile to take control)">Watch</button><button class="tbtn" id="btn-balances" title="All balances, weekly gains, Get balances" onclick="location.href='balances.html?owner='+encodeURIComponent(cur)">Balances</button><button class="tbtn" id="btn-publish">Publish</button><button class="tbtn" id="btn-settings">Settings</button></span></div>
+  <div class="sum"><span id="sum" style="display:contents"></span><span class="tools"><span class="sub" id="pgver" title="Version of this page. If it is not the latest, press Publish on the page that has it, then reload (the engine version shown is what the selected owner's Chrome is running)."></span><span class="sub" id="refreshed"></span><button class="tbtn" id="btn-refresh" title="Reload from OneDrive">↻</button><button class="tbtn" id="btn-panes" title="Show all four owners at once, each in its own scrolling pane">Panes</button><button class="tbtn" id="btn-view">Table</button><button class="tbtn" id="btn-remote">Remote</button><button class="tbtn" id="btn-watch" title="Watch several PCs at once (view only, click a tile to take control)">Watch</button><button class="tbtn" id="btn-balances" title="All balances, weekly gains, Get balances" onclick="location.href='balances.html?owner='+encodeURIComponent(cur)">Balances</button><button class="tbtn" id="btn-links" title="All my pages in one place" onclick="location.href='links.html'">Links</button><button class="tbtn" id="btn-publish">Publish</button><button class="tbtn" id="btn-settings">Settings</button></span></div>
   <div id="notes"></div>
 </div>
 <div id="rem" hidden></div>
@@ -306,7 +306,7 @@ const rowCls = p => {
   return c;
 };
 /* 11/1/26a: "Now" line = latest balance-only read (button on Free Spins sites). Blue = fine, red = the last read failed. */
-const PAGE_VERSION = '2026-11-07a';
+const PAGE_VERSION = '2026-11-09a';
 const agoTxt = ms => { const m = Math.max(0, Math.round((Date.now() - ms) / 60000)); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago'; };
 function liveLine(p, m) {
   if (!p.canBal) return '';
