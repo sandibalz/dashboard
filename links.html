@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Ben's links</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f1218">
+<style>
+:root{--bg:#f6f7f9;--panel:#fff;--text:#1b1f27;--dim:#667085;--line:#e3e6ec;--acc:#2563eb}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1218;--panel:#171b23;--text:#e8eaf0;--dim:#98a2b3;--line:#262c38;--acc:#4f8cff}}
+*{box-sizing:border-box}body{margin:0 auto;background:var(--bg);color:var(--text);font:16px/1.4 system-ui,-apple-system,Segoe UI,sans-serif;padding:16px 16px 50px;max-width:900px}
+h1{font-size:22px;margin:10px 0 2px}p.sub{color:var(--dim);margin:0 0 6px;font-size:13px}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin:26px 0 8px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+a.t{display:block;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;color:var(--text);text-decoration:none}
+a.t:hover{border-color:var(--acc)}a.t b{display:block;font-size:16px}a.t span{display:block;color:var(--dim);font-size:13px;margin-top:2px}
+a.t em{display:inline-block;font-style:normal;font-size:11px;color:var(--dim);border:1px solid var(--line);border-radius:10px;padding:1px 8px;margin-top:8px}
+a.t em.any{color:#12805c;border-color:#12805c}a.t em.ts{color:#9a6700;border-color:#9a6700}a.t em.pc{color:#b42318;border-color:#b42318}
+</style></head><body>
+<h1>Links</h1>
+<p class="sub">Everything in one place. The tag on each tile says where it works.</p>
+
+<h2>Collector</h2>
+<div class="grid">
+ <a class="t" href="./"><b>Collector Overview</b><span>All four owners, retry / stop / on-off</span><em class="any">anywhere (Microsoft sign-in)</em></a>
+ <a class="t" href="./remote.html"><b>Remote Chrome</b><span>Control Ben, Cindy, Tyler and Jessica's Chrome</span><em class="any">anywhere</em></a>
+ <a class="t" href="./balances.html"><b>Balances</b><span>GC / SC balances by profile</span><em class="any">anywhere (Microsoft sign-in)</em></a>
+ <a class="t" href="./watch.html"><b>Watch</b><span>Live watch page</span><em class="any">anywhere (Microsoft sign-in)</em></a>
+</div>
+
+<h2>Health</h2>
+<div class="grid">
+ <a class="t" href="./health.html"><b>Health log</b><span>Apple Health, food, weight, sleep</span><em class="any">anywhere (Microsoft sign-in)</em></a>
+ <a class="t" href="./runs.html"><b>Runs</b><span>Per-workout detail</span><em class="any">anywhere (Microsoft sign-in)</em></a>
+</div>
+
+<h2>Media (Lumen)</h2>
+<div class="grid">
+ <a class="t" href="https://win-t7r627bhkts.tail53a2f3.ts.net/"><b>Lumen</b><span>Movies and TV, phone and browser</span><em class="ts">needs Tailscale on this device</em></a>
+ <a class="t" href="https://win-t7r627bhkts.tail53a2f3.ts.net/hub.html"><b>Home hub</b><span>Roku TVs, commands, subtitle and Roku login</span><em class="ts">needs Tailscale on this device</em></a>
+ <a class="t" href="https://win-t7r627bhkts.tail53a2f3.ts.net/audit.html"><b>Library audit</b><span>What plays as-is and what needs conversion</span><em class="ts">needs Tailscale on this device</em></a>
+ <a class="t" href="http://192.168.68.71:8920/"><b>Lumen (home network)</b><span>Same server, direct address</span><em class="pc">home Wi-Fi only</em></a>
+</div>
+
+<h2>Tools</h2>
+<div class="grid">
+ <a class="t" href="http://localhost:8765/"><b>NetLog viewer</b><span>PC and network health</span><em class="pc">Ben's PC only</em></a>
+ <a class="t" href="https://docs.google.com/spreadsheets/d/14cHSssmLjjUOu_4EpAKt__2Zfg8Y5X40o-K-A2j5UYs/"><b>URL Receiver log</b><span>Google Sheet of received URLs</span><em class="any">anywhere (Google sign-in)</em></a>
+</div>
+</body></html>
