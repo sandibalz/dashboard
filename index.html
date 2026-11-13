@@ -90,6 +90,11 @@ tr:hover .setrow, .setrow:focus-within { display: flex; }
 .btn.alt { background: var(--grey); }
 .tools { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin-left: auto; min-width: 0; max-width: 100%; }   /* wraps onto a second line on a phone: a row that cannot wrap makes iOS zoom the whole page out */
 .tools .sub { white-space: nowrap; }
+.pcbox { padding: 10px 12px; border-bottom: 1px solid var(--line); background: var(--head); font-size: 13px; }
+.pcbox .pcrow { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+.pcbox .pcb { border: 1px solid #ced4da; background: #fff; border-radius: 8px; font-size: 14px; padding: 9px 16px; cursor: pointer; color: var(--ink); }
+.pcbox .pcb.danger { border-color: var(--bad); color: var(--bad); font-weight: 700; }
+.pcbox ul { margin: 6px 0 0; padding-left: 18px; color: var(--soft); font-size: 12px; }
 .tbtn { border: 1px solid #ced4da; background: #fff; border-radius: 6px; font-size: 12px; padding: 3px 10px; cursor: pointer; color: var(--ink); }
 .err { background: #ffe8ea; border: 1px solid #f5b5bb; color: #8a1f27; border-radius: 6px; font-size: 12px; padding: 6px 10px; margin-top: 8px; line-height: 1.4; }
 .ic.confirm { background: var(--bad); width: auto; padding: 0 5px; }
@@ -155,9 +160,10 @@ code.k { background: var(--head); border: 1px solid var(--line); border-radius: 
 <body>
 <div class="top">
   <div class="owners" id="owners" role="tablist" aria-label="Owner"></div>
-  <div class="sum"><span id="sum" style="display:contents"></span><span class="tools"><span class="sub" id="pgver" title="Version of this page. If it is not the latest, press Publish on the page that has it, then reload (the engine version shown is what the selected owner's Chrome is running)."></span><span class="sub" id="refreshed"></span><button class="tbtn" id="btn-refresh" title="Reload from OneDrive">↻</button><button class="tbtn" id="btn-panes" title="Show all four owners at once, each in its own scrolling pane">Panes</button><button class="tbtn" id="btn-view">Table</button><button class="tbtn" id="btn-remote">Remote</button><button class="tbtn" id="btn-watch" title="Watch several PCs at once (view only, click a tile to take control)">Watch</button><button class="tbtn" id="btn-balances" title="All balances, weekly gains, Get balances" onclick="location.href='balances.html?owner='+encodeURIComponent(cur)">Balances</button><button class="tbtn" id="btn-links" title="All my pages in one place" onclick="location.href='links.html'">Links</button><button class="tbtn" id="btn-publish">Publish</button><button class="tbtn" id="btn-settings">Settings</button></span></div>
+  <div class="sum"><span id="sum" style="display:contents"></span><span class="tools"><span class="sub" id="pgver" title="Version of this page. If it is not the latest, press Publish on the page that has it, then reload (the engine version shown is what the selected owner's Chrome is running)."></span><span class="sub" id="refreshed"></span><button class="tbtn" id="btn-refresh" title="Reload from OneDrive">↻</button><button class="tbtn" id="btn-panes" title="Show all four owners at once, each in its own scrolling pane">Panes</button><button class="tbtn" id="btn-view">Table</button><button class="tbtn" id="btn-remote">Remote</button><button class="tbtn" id="btn-watch" title="Watch several PCs at once (view only, click a tile to take control)">Watch</button><button class="tbtn" id="btn-pc" title="Restart Chrome or reboot the selected owner's PC">PC</button><button class="tbtn" id="btn-balances" title="All balances, weekly gains, Get balances" onclick="location.href='balances.html?owner='+encodeURIComponent(cur)">Balances</button><button class="tbtn" id="btn-links" title="All my pages in one place" onclick="location.href='links.html'">Links</button><button class="tbtn" id="btn-publish">Publish</button><button class="tbtn" id="btn-settings">Settings</button></span></div>
   <div id="notes"></div>
 </div>
+<div id="pcbox" class="pcbox" hidden></div>
 <div id="rem" hidden></div>
 <div id="pub" hidden></div>
 <div id="out"></div>
@@ -306,7 +312,7 @@ const rowCls = p => {
   return c;
 };
 /* 11/1/26a: "Now" line = latest balance-only read (button on Free Spins sites). Blue = fine, red = the last read failed. */
-const PAGE_VERSION = '2026-11-09a';
+const PAGE_VERSION = '2026-11-13a';
 const agoTxt = ms => { const m = Math.max(0, Math.round((Date.now() - ms) / 60000)); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago'; };
 function liveLine(p, m) {
   if (!p.canBal) return '';
@@ -446,6 +452,7 @@ function render() {
   const cnt = k => rows.filter(p => p.en && p.steps && k.test(p.st)).length;
   $('sum').innerHTML = d ? `<span><b>${rows.filter(p => p.en && p.steps).length}</b> active</span><span><b>${cnt(/^Success|^Marked/)}</b> ok</span><span><b>${cnt(/^(Not Ready|No Reward)/)}</b> waiting</span><span style="color:var(--bad)"><b>${rows.filter(isBroken).length}</b> need attention</span><span>engine ${esc(d.engine)}${d.automatorEnabled === false ? ' · <b style="color:var(--bad)">automator OFF</b>' : ''}</span>` : '';
   if (isPanes()) $('sum').innerHTML = '';
+  if (pcOpen) pcRender();
   $('pgver').textContent = 'page ' + PAGE_VERSION + (d && d.engine ? ' · ' + cur + ' engine ' + d.engine : '') + ' · ';
   $('refreshed').textContent = (progress ? progress + ' · ' : '') + (lastRefresh ? 'refreshed ' + dt(lastRefresh, { hour: 'numeric', minute: '2-digit' }) : '');
   let notes = '';
@@ -552,6 +559,54 @@ document.addEventListener('click', async e => {
   try { await queueRetry(O, p); toast(`<b>Queued a run for ${esc(p.n)}</b> on ${O}'s Chrome. It starts within about a minute after OneDrive syncs to that PC.`); }
   catch (err) { toast('<b>Could not queue it.</b> ' + esc(describe(err)), 9000); }
   render();
+});
+
+/* ---------- PC controls: restart Chrome / reboot the selected owner's PC (handled by pc-agent.ps1 on that PC, not by Chrome) ---------- */
+var pcOpen = false, pcTimer = null;
+const PC_TXT = { restartChrome: 'Restart Chrome', rebootPc: 'Reboot PC' };
+const PC_RES = { done: 'done', rebooting: 'rebooting', failed: 'FAILED', skipped: 'skipped', invalid: 'invalid' };
+async function pcRecent(o) {
+  const base = cfg.root + '/Profiles/' + o + '/pc-commands', out = [];
+  try {
+    const w = await (await g('/me/drive/root:' + enc(base) + ':/children?$select=name&$top=100')).json();
+    (w.value || []).filter(f => /^pc-.*~(restartChrome|rebootPc)\.json$/.test(f.name)).forEach(f => { const m = f.name.match(/~(\w+)\.json$/); out.push({ t: 0, txt: (PC_TXT[m[1]] || m[1]) + ': waiting for ' + o + "'s PC to pick it up (needs OneDrive running there)" }); });
+  } catch (_) {}
+  try {
+    const d = await (await g('/me/drive/root:' + enc(base + '/done') + ':/children?$select=name&$top=100')).json();
+    (d.value || []).forEach(f => {
+      const m = f.name.match(/^pc-done-(\d{4}-\d\d-\d\d)T(\d\d)-(\d\d)-(\d\d)-\d+Z~(\w+)~(\w+)\.json$/); if (!m) return;
+      const t = Date.parse(m[1] + 'T' + m[2] + ':' + m[3] + ':' + m[4] + 'Z');
+      out.push({ t, txt: lastTxt(t) + ' - ' + (PC_TXT[m[5]] || m[5]) + ': ' + (PC_RES[m[6]] || m[6]) });
+    });
+  } catch (_) {}
+  return out.sort((a, b) => (b.t || Infinity) - (a.t || Infinity)).slice(0, 5);
+}
+async function pcRender() {
+  const el = $('pcbox'); el.hidden = !pcOpen; if (!pcOpen) { el.innerHTML = ''; return; }
+  const O = cur;
+  el.innerHTML = `<b>${esc(O)}'s PC</b><div class="pcrow"><button class="pcb" data-pc="restartChrome">Restart Chrome</button><button class="pcb danger" data-pc="rebootPc">Reboot PC</button></div>
+  <div style="color:var(--soft);font-size:12px">Restart Chrome closes it (force-closes if it hangs) and starts it again with the Remote flags; a run in progress is interrupted. Reboot restarts Windows 45 seconds after the PC picks up the command. Needs OneDrive running on that PC; usually acts within a minute.</div>
+  <ul id="pclist"><li>loading recent commands...</li></ul>`;
+  const rec = await pcRecent(O); const ul = $('pclist'); if (!ul || cur !== O) return;
+  ul.innerHTML = rec.length ? rec.map(r => '<li>' + esc(r.txt) + '</li>').join('') : '<li>No PC commands yet.</li>';
+}
+async function pcSend(action) {
+  const O = cur;
+  if (!confirm(action === 'rebootPc' ? 'REBOOT ' + O + "'s whole PC? Windows restarts about a minute after the command arrives and every run in progress is lost." : 'Close and reopen Chrome on ' + O + "'s PC? Any run in progress is interrupted.")) return;
+  try {
+    const stamp = new Date().toISOString(), base = cfg.root + '/Profiles/' + O + '/pc-commands';
+    const id = crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => (Math.random() * 16 | (c === 'x' ? 0 : 8)).toString(16));
+    const body = { id, action, owner: O, requestedAt: stamp, requestedFrom: 'Overview page' };
+    const fn = 'pc-' + stamp.replace(/[:.]/g, '-') + '~' + action + '.json';
+    await g('/me/drive/root:' + enc(base + '/' + fn) + ':/content?@microsoft.graph.conflictBehavior=fail', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body, null, 2) });
+    toast('<b>' + PC_TXT[action] + ' sent to ' + esc(O) + "'s PC.</b> It acts within about a minute after OneDrive syncs there; the result shows below.", 9000);
+    let n = 0; clearInterval(pcTimer); pcTimer = setInterval(() => { if (!pcOpen || ++n > 16) { clearInterval(pcTimer); return; } pcRender(); }, 15000);
+    pcRender();
+  } catch (err) { toast('<b>Could not send it.</b> ' + esc(describe(err)), 9000); }
+}
+document.addEventListener('click', e => {
+  if (e.target.closest('#btn-pc')) { pcOpen = !pcOpen; pcRender(); return; }
+  const pb = e.target.closest('[data-pc]'); if (pb) pcSend(pb.dataset.pc);
 });
 
 /* ---------- Publish: push index.html from OneDrive to GitHub (replaces opening the Script Sync extension) ---------- */
