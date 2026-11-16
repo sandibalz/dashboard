@@ -56,6 +56,7 @@ body.side.emb #embBtns{display:flex;flex-direction:column;gap:6px;margin-top:10p
   <button id="bFs" title="Full screen">&#9974;</button>
   <button id="bLog" title="Connection log">Log</button>
   <button id="bLogClr" title="Clear the connection log">Clear log</button>
+  <button id="bLogSave" title="Save this log (and the host's own log) to OneDrive so Claude can read it">Save log</button>
   <button id="bZ" title="Pinch with two fingers to zoom this view. Tap to reset.">Zoom 1&times;</button>
   <span id="stats"></span>
   <span id="embBtns"><button id="eSm" title="Back to the small viewer">Smaller</button><button id="eTab" title="Open the viewer in its own browser tab">New tab</button><button id="eClose" title="Close the viewer">Close</button></span>
@@ -123,12 +124,13 @@ const RC = {
   connect: (room) => new WebSocket(`${cfg.relay}/ws?room=${room}&role=viewer`),
 };
 
-let cur = null, tabsTimer = null, statsTimer = null, rpcId = 1, lastBytes = 0, lastT = 0, selTab = null, gen = 0;
+let lastHost = '', cur = null, tabsTimer = null, statsTimer = null, rpcId = 1, lastBytes = 0, lastT = 0, selTab = null, gen = 0;
 const socks = {}, rpcWait = new Map();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const DLOG = []; let dT0 = Date.now();
 function dlog(t) { const l = ((Date.now() - dT0) / 1000).toFixed(1).padStart(5) + 's ' + t; DLOG.push(l); if (DLOG.length > 300) DLOG.shift(); const d = document.getElementById('dbg'); if (d && d.style.display !== 'none') { d.textContent = DLOG.join('\n'); d.scrollTop = d.scrollHeight; } }
-document.addEventListener('click', (e) => { if (e.target.id === 'bLogClr') { DLOG.length = 0; dT0 = Date.now(); const d = $('#dbg'); if (d) { d.textContent = '(log cleared)'; d.scrollTop = 0; } return; }
+document.addEventListener('click', (e) => { if (e.target.id === 'bLogSave') { diagAndSave(lastHost, 'manual'); return; }
+  if (e.target.id === 'bLogClr') { DLOG.length = 0; dT0 = Date.now(); const d = $('#dbg'); if (d) { d.textContent = '(log cleared)'; d.scrollTop = 0; } return; }
   if (e.target.id === 'bLog') { const d = $('#dbg'); const on = d.style.display === 'none'; d.style.display = on ? 'block' : 'none'; if (on) { d.textContent = DLOG.join('\n') || '(nothing yet: tap a PC first)'; d.scrollTop = d.scrollHeight; } } });
 
 const show = (t, err) => { const m = $('#msg'); m.textContent = t || ''; m.classList.toggle('err', !!err); m.style.display = t ? 'flex' : 'none'; };
@@ -146,18 +148,22 @@ function buildHosts() {
 }
 async function openSock(n, g) {
   if (g !== gen) return;
-  const s = socks[n] || (socks[n] = { online: false, ws: null, room: null, hb: null, tok: 0 });
+  const s = socks[n] || (socks[n] = { online: false, ws: null, room: null, hb: null, tok: 0, rx: 0 });
   const tok = ++s.tok;
   if (s.ws && s.ws.readyState < 2) { const o = s.ws; o.onclose = null; try { o.close(); } catch {} clearInterval(s.hb); }
   s.room = await RC.room(n);
   if (tok !== s.tok || g !== gen) return;
   const ws = RC.connect(s.room);
   s.ws = ws;
-  ws.onopen = () => { clearInterval(s.hb); s.hb = setInterval(() => { try { ws.send('ping'); } catch {} }, 20000); };
+  // 1116b: a half-dead socket keeps the green dot and swallows offers. Track the last thing heard from the relay;
+  // if nothing (not even a pong) for 50 s, reopen. connect() also tests the socket first.
+  ws.onopen = () => { s.rx = Date.now(); clearInterval(s.hb); s.hb = setInterval(() => { try { if (Date.now() - s.rx > 50000) { dlog(n + ': relay silent for 50 s; reopening'); openSock(n, g); return; } ws.send('ping'); } catch {} }, 20000); };
   ws.onmessage = (e) => {
+    s.rx = Date.now();
     if (e.data === 'pong') return;
     let m; try { m = JSON.parse(e.data); } catch { return; }
     if (m.t !== 'presence' && m.t !== 'hello') dlog(`${n}: relay msg ${m.t}${m.sid ? ' sid ' + m.sid : ''}${m.msg ? ' ' + m.msg : ''}`);
+    if (m.t === 'hostlog') { s.hostlog = m; dlog(`${n}: host log received (${(m.lines || []).length} lines, extension ${m.ver})`); return; }
     if (m.t === 'presence') { s.online = m.host; $('#h-' + n).classList.toggle('on', m.host); }
     else if (cur && cur.name === n) onSignal(m);
   };
@@ -194,6 +200,36 @@ async function msKey() {
   return j.key;
 }
 let msErr = '';
+// ---- save the log to OneDrive (Documents\Remote-Chrome\logs) so Claude can read it; asks the host for its own recent log first ----
+async function msToken() {
+  if (!window.msal) await loadScript('https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js');
+  let cid = '1ee77fca-2582-4c3d-a13a-84f3ce009772'; try { const v = JSON.parse(localStorage.getItem('co.clientId')); if (v) cid = v; } catch {}
+  const pca = new msal.PublicClientApplication({ auth: { clientId: cid, authority: 'https://login.microsoftonline.com/consumers', redirectUri: location.origin + location.pathname.replace(/[^/]*$/, '') }, cache: { cacheLocation: 'localStorage' } });
+  if (pca.initialize) await pca.initialize();
+  const acct = pca.getActiveAccount() || pca.getAllAccounts()[0];
+  if (!acct) throw new Error('not signed in on this browser');
+  return (await pca.acquireTokenSilent({ scopes: ['Files.ReadWrite'], account: acct })).accessToken;
+}
+async function diagAndSave(n, reason) {
+  const snap = DLOG.slice(); let host = null;
+  try {
+    const s = n && socks[n];
+    if (s && s.ws && s.ws.readyState === 1) {
+      s.hostlog = null; try { s.ws.send(JSON.stringify({ t: 'diag' })); } catch {}
+      for (let i = 0; i < 30 && !s.hostlog; i++) await new Promise((r) => setTimeout(r, 100));
+      host = s.hostlog;
+    }
+    const d = new Date(), z = (x) => String(x).padStart(2, '0');
+    const stamp = `${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}`;
+    const txt = [`Remote-Chrome viewer log (${reason}) ${d.toString()}`, `host: ${n || '(none)'}; page build 1116c; ua ${navigator.userAgent}`, '', '--- viewer log ---', ...snap, '',
+      host ? `--- host log (extension ${host.ver}; times are UTC on the host) ---` : '--- host log: NO REPLY within 3 s (the relay or the host did not answer the request) ---', ...(host ? host.lines : [])].join('\n');
+    const tok = await msToken();
+    const path = `/Documents/Remote-Chrome/logs/remote-${stamp}-${n || 'x'}.txt`;
+    const r = await fetch('https://graph.microsoft.com/v1.0/me/drive/root:' + path.split('/').map(encodeURIComponent).join('/') + ':/content', { method: 'PUT', headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'text/plain' }, body: txt });
+    if (!r.ok) throw new Error('OneDrive said ' + r.status);
+    dlog('log saved: ' + path + (host ? ' (with host log)' : ' (host did not answer)')); show('Log saved to OneDrive' + (host ? '' : ' (host did not answer)') + '.', !host);
+  } catch (e) { dlog('log save failed: ' + e.message); show('Could not save the log: ' + e.message, true); }
+}
 async function autoKey() {
   show('Getting the key from your Microsoft sign-in…');
   try { cfg.key = await msKey(); cfg.fromMs = true; msErr = ''; dlog('key loaded via Microsoft sign-in'); show(''); return true; }
@@ -251,11 +287,25 @@ async function turnServers(n) {
   } catch (e) { dlog('turn: skipped (' + (e.name === 'AbortError' ? 'timeout' : e.message) + ')'); return []; }
 }
 async function connect(n) {
+  let preflight = ''; lastHost = n;
   const s = socks[n];
   if (!s || !s.ws || s.ws.readyState !== 1) return show('Relay not reachable yet. Try again in a moment.', true);
   if (!s.online) return show(n + ' is offline (Chrome not running there, or host mode not set up).', true);
+  {   // preflight: does the relay socket still answer? (a stale one would silently drop the offer)
+    const t0 = Date.now(), rx0 = s.rx; try { s.ws.send('ping'); } catch {}
+    while (s.rx === rx0 && Date.now() - t0 < 4000) await new Promise((r) => setTimeout(r, 100));
+    if (s.rx === rx0) {
+      show('Refreshing the relay connection…');
+      await openSock(n, gen);
+      const t1 = Date.now();
+      while (!(s.ws && s.ws.readyState === 1 && s.online) && Date.now() - t1 < 8000) await new Promise((r) => setTimeout(r, 100));
+      if (!(s.ws && s.ws.readyState === 1 && s.online)) return show('The relay connection was stale and did not come back. Try again.', true);
+      preflight = 'relay socket was stale; reopened in ' + (Date.now() - t0) + ' ms';
+    } else preflight = 'relay socket ok, pong in ' + (Date.now() - t0) + ' ms';
+  }
   disconnect(true);
   dT0 = Date.now(); DLOG.length = 0; dlog(`connect ${n}; relay ws state ${s.ws.readyState}; ua ${navigator.userAgent.slice(0, 90)}`);
+  dlog('preflight: ' + preflight);
   show('Connecting to ' + n + '…');
   const sid = Math.random().toString(36).slice(2, 10);
   const extra = await turnServers(n);
@@ -291,8 +341,8 @@ async function connect(n) {
   await pc.setLocalDescription(offer);
   const ts = Date.now();
   s.ws.send(JSON.stringify({ t: 'offer', sid, ts, sdp: offer.sdp, sig: await RC.sign(`offer|${sid}|${ts}|${offer.sdp}`) }));
-  dlog(`offer sent [page build 1116a, audio m-line ${/^m=audio/m.test(offer.sdp) ? 'yes' : 'NO'}], sdp ${offer.sdp.length} bytes, video codecs: ${[...new Set((offer.sdp.match(/a=rtpmap:\d+ (H264|VP8|VP9|AV1)/g) || []).map((x) => x.split(' ')[1]))].join(',')}`);
-  c.timeout = setTimeout(() => { if (cur === c && !c.ready) { dlog('TIMEOUT: no data channel after 20 s; ws state ' + s.ws.readyState + ', ice ' + pc.iceConnectionState + ', pc ' + pc.connectionState + ', remoteDesc ' + !!pc.remoteDescription); show('No answer from ' + n + '. Tap Log for details.', true); disconnect(true); } }, 20000);
+  dlog(`offer sent [page build 1116c, audio m-line ${/^m=audio/m.test(offer.sdp) ? 'yes' : 'NO'}], sdp ${offer.sdp.length} bytes, video codecs: ${[...new Set((offer.sdp.match(/a=rtpmap:\d+ (H264|VP8|VP9|AV1)/g) || []).map((x) => x.split(' ')[1]))].join(',')}`);
+  c.timeout = setTimeout(() => { if (cur === c && !c.ready) { dlog('TIMEOUT: no data channel after 20 s; ws state ' + s.ws.readyState + ', ice ' + pc.iceConnectionState + ', pc ' + pc.connectionState + ', remoteDesc ' + !!pc.remoteDescription); show('No answer from ' + n + '. Saving the log…', true); disconnect(true); diagAndSave(n, 'timeout'); } }, 20000);
 }
 // Signals are handled strictly one after another, and ICE candidates wait until the answer is applied
 // (they arrive in the same instant as the answer; adding them early makes the browser drop them).
