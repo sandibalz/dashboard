@@ -55,6 +55,7 @@ body.side.emb #embBtns{display:flex;flex-direction:column;gap:6px;margin-top:10p
   <button id="bSnd" title="Sound from the PC (needs a Remote-Chrome host 0.2.2 or newer)">&#128263; Sound</button>
   <button id="bFs" title="Full screen">&#9974;</button>
   <button id="bLog" title="Connection log">Log</button>
+  <button id="bLogClr" title="Clear the connection log">Clear log</button>
   <button id="bZ" title="Pinch with two fingers to zoom this view. Tap to reset.">Zoom 1&times;</button>
   <span id="stats"></span>
   <span id="embBtns"><button id="eSm" title="Back to the small viewer">Smaller</button><button id="eTab" title="Open the viewer in its own browser tab">New tab</button><button id="eClose" title="Close the viewer">Close</button></span>
@@ -127,7 +128,8 @@ const socks = {}, rpcWait = new Map();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const DLOG = []; let dT0 = Date.now();
 function dlog(t) { const l = ((Date.now() - dT0) / 1000).toFixed(1).padStart(5) + 's ' + t; DLOG.push(l); if (DLOG.length > 300) DLOG.shift(); const d = document.getElementById('dbg'); if (d && d.style.display !== 'none') { d.textContent = DLOG.join('\n'); d.scrollTop = d.scrollHeight; } }
-document.addEventListener('click', (e) => { if (e.target.id === 'bLog') { const d = $('#dbg'); const on = d.style.display === 'none'; d.style.display = on ? 'block' : 'none'; if (on) { d.textContent = DLOG.join('\n') || '(nothing yet: tap a PC first)'; d.scrollTop = d.scrollHeight; } } });
+document.addEventListener('click', (e) => { if (e.target.id === 'bLogClr') { DLOG.length = 0; dT0 = Date.now(); const d = $('#dbg'); if (d) { d.textContent = '(log cleared)'; d.scrollTop = 0; } return; }
+  if (e.target.id === 'bLog') { const d = $('#dbg'); const on = d.style.display === 'none'; d.style.display = on ? 'block' : 'none'; if (on) { d.textContent = DLOG.join('\n') || '(nothing yet: tap a PC first)'; d.scrollTop = d.scrollHeight; } } });
 
 const show = (t, err) => { const m = $('#msg'); m.textContent = t || ''; m.classList.toggle('err', !!err); m.style.display = t ? 'flex' : 'none'; };
 let flashT; function flash(t) { show(t, true); clearTimeout(flashT); flashT = setTimeout(() => show(''), 3500); }
@@ -289,7 +291,7 @@ async function connect(n) {
   await pc.setLocalDescription(offer);
   const ts = Date.now();
   s.ws.send(JSON.stringify({ t: 'offer', sid, ts, sdp: offer.sdp, sig: await RC.sign(`offer|${sid}|${ts}|${offer.sdp}`) }));
-  dlog(`offer sent [page build 1103b, audio m-line ${/^m=audio/m.test(offer.sdp) ? 'yes' : 'NO'}], sdp ${offer.sdp.length} bytes, video codecs: ${[...new Set((offer.sdp.match(/a=rtpmap:\d+ (H264|VP8|VP9|AV1)/g) || []).map((x) => x.split(' ')[1]))].join(',')}`);
+  dlog(`offer sent [page build 1116a, audio m-line ${/^m=audio/m.test(offer.sdp) ? 'yes' : 'NO'}], sdp ${offer.sdp.length} bytes, video codecs: ${[...new Set((offer.sdp.match(/a=rtpmap:\d+ (H264|VP8|VP9|AV1)/g) || []).map((x) => x.split(' ')[1]))].join(',')}`);
   c.timeout = setTimeout(() => { if (cur === c && !c.ready) { dlog('TIMEOUT: no data channel after 20 s; ws state ' + s.ws.readyState + ', ice ' + pc.iceConnectionState + ', pc ' + pc.connectionState + ', remoteDesc ' + !!pc.remoteDescription); show('No answer from ' + n + '. Tap Log for details.', true); disconnect(true); } }, 20000);
 }
 // Signals are handled strictly one after another, and ICE candidates wait until the answer is applied
